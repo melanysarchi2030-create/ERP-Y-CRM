@@ -1,0 +1,3627 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AVYRA ERP & CRM | Beyond Every Journey</title>
+  <!-- Tipografía corporativa moderna -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace'],
+          },
+          colors: {
+            avyra: {
+              navy: '#0F223D',
+              navyLight: '#162E52',
+              burgundy: '#7A1C32',
+              burgundyHover: '#93243E',
+              beige: '#F5F1EB',
+              beigeDark: '#EDE6DC',
+              slate: '#64748B',
+              border: '#E2E8F0'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #F5F1EB;
+      color: #0F223D;
+      overflow-x: hidden;
+    }
+    /* Scrollbar refinado */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #F5F1EB; }
+    ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+
+    /* Estilos de impresión para comprobantes */
+    @media print {
+      body * { visibility: hidden; }
+      #printable-invoice, #printable-invoice * { visibility: visible; }
+      #printable-invoice {
+        position: fixed;
+        left: 0;
+        top: 0;
+        width: 100%;
+        background: white;
+        padding: 24px;
+      }
+      .no-print { display: none !important; }
+    }
+
+    .fade-in {
+      animation: fadeIn 0.2s ease-out;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body class="antialiased selection:bg-avyra-burgundy selection:text-white">
+
+  <!-- CONTENEDOR RAÍZ DE LA APLICACIÓN -->
+  <div id="app"></div>
+
+  <!-- CONTENEDOR DE NOTIFICACIONES TOAST -->
+  <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none"></div>
+
+  <!-- MODAL GENÉRICO REUTILIZABLE -->
+  <div id="modal-backdrop" class="fixed inset-0 bg-avyra-navy/60 backdrop-blur-xs z-40 hidden items-center justify-center p-4 overflow-y-auto">
+    <div id="modal-panel" class="bg-white rounded-2xl shadow-2xl border border-avyra-border w-full max-w-2xl overflow-hidden my-8 fade-in">
+      <!-- Contenido dinámico del modal -->
+    </div>
+  </div>
+
+  <script>
+    /**
+     * ============================================================================
+     * AVYRA ERP & CRM - NÚCLEO DE ARQUITECTURA, DATOS Y LÓGICA EMPRESARIAL
+     * Lema: BEYOND EVERY JOURNEY | Ecuador
+     * ============================================================================
+     */
+
+    const STORAGE_KEY = 'AVYRA_ERP_CRM_DB_V1';
+    const SESSION_KEY = 'AVYRA_ERP_CRM_SESSION_V1';
+    const IVA_RATE = 0.15; // 15% IVA vigente en Ecuador
+
+    // Definición de Roles y Permisos Granulares
+    const ROLES_CONFIG = {
+      admin: {
+        id: 'admin',
+        name: 'Administrador General',
+        user: 'admin@avyra.ec',
+        fullName: 'Dirección General AVYRA [DEMO]',
+        badge: 'Acceso Total',
+        modules: ['dashboard', 'inventory', 'purchases', 'sales', 'finance', 'logistics', 'customers', 'support', 'marketing', 'storefront', 'reports', 'docs']
+      },
+      sales: {
+        id: 'sales',
+        name: 'Ejecutivo de Ventas',
+        user: 'ventas@avyra.ec',
+        fullName: 'Camila Andrade [DEMO]',
+        badge: 'Ventas & CRM',
+        modules: ['dashboard', 'sales', 'customers', 'storefront', 'reports']
+      },
+      inventory: {
+        id: 'inventory',
+        name: 'Jefe de Inventario & Logística',
+        user: 'bodega@avyra.ec',
+        fullName: 'Mateo Villacís [DEMO]',
+        badge: 'ERP Operaciones',
+        modules: ['dashboard', 'inventory', 'purchases', 'logistics', 'reports']
+      },
+      support: {
+        id: 'support',
+        name: 'Atención al Cliente',
+        user: 'soporte@avyra.ec',
+        fullName: 'Valeria Salazar [DEMO]',
+        badge: 'Soporte & CRM',
+        modules: ['dashboard', 'customers', 'support', 'sales']
+      },
+      finance: {
+        id: 'finance',
+        name: 'Analista Financiero',
+        user: 'finanzas@avyra.ec',
+        fullName: 'Sebastián Ortiz [DEMO]',
+        badge: 'Finanzas & Compras',
+        modules: ['dashboard', 'finance', 'purchases', 'sales', 'reports']
+      }
+    };
+
+    // Catálogo de provincias y ciudades principales de Ecuador
+    const ECUADOR_LOCATIONS = [
+      { province: 'Pichincha', cities: ['Quito', 'Sangolquí', 'Cayambe'] },
+      { province: 'Guayas', cities: ['Guayaquil', 'Samborondón', 'Daule', 'Milagro'] },
+      { province: 'Azuay', cities: ['Cuenca', 'Gualaceo'] },
+      { province: 'Carchi', cities: ['Tulcán', 'Montúfar'] },
+      { province: 'Manabí', cities: ['Manta', 'Portoviejo', 'Chone'] },
+      { province: 'Tungurahua', cities: ['Ambato', 'Baños'] },
+      { province: 'Imbabura', cities: ['Ibarra', 'Otavalo'] },
+      { province: 'Loja', cities: ['Loja', 'Catamayo'] },
+      { province: 'El Oro', cities: ['Machala', 'Santa Rosa'] }
+    ];
+
+    const CARRIERS_EC = ['Servientrega Ecuador', 'Laarcourier', 'Tramaco Express', 'Urbano Express'];
+
+    /**
+     * Genera la base de datos inicial estructurada con los 6 productos obligatorios (210 unidades exactas)
+     * y registros de demostración claramente identificados con [DEMO].
+     */
+    function getInitialDatabase() {
+      const today = new Date().toISOString().split('T')[0];
+      const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+      const threeDaysAgo = new Date(Date.now() - 3 * 86400000).toISOString().split('T')[0];
+      const tenDaysAgo = new Date(Date.now() - 10 * 86400000).toISOString().split('T')[0];
+
+      return {
+        meta: {
+          version: '1.0.0',
+          company: 'AVYRA Ecuador',
+          slogan: 'BEYOND EVERY JOURNEY',
+          ivaRate: IVA_RATE,
+          lastSync: new Date().toISOString()
+        },
+        // 1. PRODUCTOS E INVENTARIO (Exactamente los 6 productos iniciales = 210 unidades)
+        products: [
+          {
+            id: 'PRD-001',
+            sku: 'AVY-001',
+            name: 'Maleta Inteligente AVYRA Pro',
+            category: 'Equipaje',
+            variant: 'Negro Obsidiana / Cabina 20"',
+            description: 'Maleta rígida de policarbonato aeroespacial con puerto USB integrado, candado TSA y ruedas silenciosas 360°.',
+            cost: 82.00,
+            price: 159.00,
+            stock: 25,
+            minStock: 8,
+            icon: 'briefcase',
+            active: true
+          },
+          {
+            id: 'PRD-002',
+            sku: 'AVY-002',
+            name: 'Mochila Travel Elite',
+            category: 'Mochilas',
+            variant: 'Azul Profundo / 35L Expandible',
+            description: 'Mochila antirrobo impermeable con compartimento acolchado para laptop de hasta 17" y apertura tipo maleta 180°.',
+            cost: 44.00,
+            price: 89.00,
+            stock: 35,
+            minStock: 10,
+            icon: 'backpack',
+            active: true
+          },
+          {
+            id: 'PRD-003',
+            sku: 'AVY-003',
+            name: 'Almohada de Cuello Premium',
+            category: 'Confort',
+            variant: 'Borgoña / Espuma Viscoelástica',
+            description: 'Almohada ergonómica de espuma con memoria de alta densidad, funda transpirable lavable y bolsa de compresión.',
+            cost: 12.50,
+            price: 29.00,
+            stock: 40,
+            minStock: 12,
+            icon: 'moon',
+            active: true
+          },
+          {
+            id: 'PRD-004',
+            sku: 'AVY-004',
+            name: 'Organizador Tech Travel',
+            category: 'Organización',
+            variant: 'Gris Grafito / Doble Capa',
+            description: 'Estuche impermeable con divisiones elásticas para cables, cargadores, SSD, powerbank y pasaporte.',
+            cost: 10.00,
+            price: 24.50,
+            stock: 30,
+            minStock: 10,
+            icon: 'cpu',
+            active: true
+          },
+          {
+            id: 'PRD-005',
+            sku: 'AVY-005',
+            name: 'Adaptador Universal AVYRA',
+            category: 'Electrónica',
+            variant: 'Negro Mate / GaN 65W + 4 USB',
+            description: 'Adaptador internacional compatible con más de 150 países (US/EU/UK/AU) con carga rápida USB-C PD.',
+            cost: 18.00,
+            price: 39.00,
+            stock: 45,
+            minStock: 15,
+            icon: 'plug',
+            active: true
+          },
+          {
+            id: 'PRD-006',
+            sku: 'AVY-006',
+            name: 'Báscula Digital Travel',
+            category: 'Accesorios',
+            variant: 'Acero Cepillado / Hasta 50kg',
+            description: 'Báscula portátil de alta precisión con pantalla LCD retroiluminada, función tara y correa reforzada.',
+            cost: 7.50,
+            price: 18.50,
+            stock: 35,
+            minStock: 12,
+            icon: 'scale',
+            active: true
+          }
+        ],
+        // Kardex / Movimientos de Inventario
+        inventoryMovements: [
+          { id: 'MOV-1001', date: tenDaysAgo, sku: 'AVY-001', productName: 'Maleta Inteligente AVYRA Pro', type: 'Entrada Inicial', qty: 25, prevStock: 0, newStock: 25, reference: 'INV-INICIAL [DEMO]', user: 'Sistema' },
+          { id: 'MOV-1002', date: tenDaysAgo, sku: 'AVY-002', productName: 'Mochila Travel Elite', type: 'Entrada Inicial', qty: 35, prevStock: 0, newStock: 35, reference: 'INV-INICIAL [DEMO]', user: 'Sistema' },
+          { id: 'MOV-1003', date: tenDaysAgo, sku: 'AVY-003', productName: 'Almohada de Cuello Premium', type: 'Entrada Inicial', qty: 40, prevStock: 0, newStock: 40, reference: 'INV-INICIAL [DEMO]', user: 'Sistema' },
+          { id: 'MOV-1004', date: tenDaysAgo, sku: 'AVY-004', productName: 'Organizador Tech Travel', type: 'Entrada Inicial', qty: 30, prevStock: 0, newStock: 30, reference: 'INV-INICIAL [DEMO]', user: 'Sistema' },
+          { id: 'MOV-1005', date: tenDaysAgo, sku: 'AVY-005', productName: 'Adaptador Universal AVYRA', type: 'Entrada Inicial', qty: 45, prevStock: 0, newStock: 45, reference: 'INV-INICIAL [DEMO]', user: 'Sistema' },
+          { id: 'MOV-1006', date: tenDaysAgo, sku: 'AVY-006', productName: 'Báscula Digital Travel', type: 'Entrada Inicial', qty: 35, prevStock: 0, newStock: 35, reference: 'INV-INICIAL [DEMO]', user: 'Sistema' }
+        ],
+        // 2. PROVEEDORES Y ÓRDENES DE COMPRA [DEMO]
+        suppliers: [
+          {
+            id: 'PRV-01',
+            name: 'AeroLuggage Global Mfg [DEMO]',
+            ruc: '1790012345001',
+            contact: 'Ing. Roberto Chang',
+            email: 'ventas@aeroluggage-demo.com',
+            phone: '+593 99 111 2233',
+            city: 'Quito / Importación',
+            category: 'Equipaje y Mochilas'
+          },
+          {
+            id: 'PRV-02',
+            name: 'AndesTech Accessories S.A. [DEMO]',
+            ruc: '0990098765001',
+            contact: 'Lic. Daniela Paredes',
+            email: 'comercial@andestech-demo.ec',
+            phone: '+593 98 444 5566',
+            city: 'Guayaquil',
+            category: 'Electrónica y Organizadores'
+          }
+        ],
+        purchaseOrders: [
+          {
+            id: 'OC-2026-001',
+            date: threeDaysAgo,
+            supplierId: 'PRV-01',
+            supplierName: 'AeroLuggage Global Mfg [DEMO]',
+            items: [
+              { productId: 'PRD-001', sku: 'AVY-001', name: 'Maleta Inteligente AVYRA Pro', qty: 5, unitCost: 82.00 }
+            ],
+            total: 410.00,
+            status: 'Pendiente',
+            receivedDate: null,
+            notes: 'Reposición preventiva de cabina [DEMO]'
+          }
+        ],
+        // 3. CLIENTES CRM [DEMO]
+        customers: [
+          {
+            id: 'CLI-001',
+            firstName: 'Andrea',
+            lastName: 'Montalvo [DEMO]',
+            email: 'andrea.montalvo@demo.ec',
+            phone: '593991234567',
+            address: 'Av. República del Salvador N34-120',
+            city: 'Quito',
+            province: 'Pichincha',
+            registeredAt: tenDaysAgo,
+            segment: 'Frecuente',
+            preferences: 'Equipaje inteligente, Accesorios Tech',
+            marketingConsent: true,
+            interactions: [
+              { date: threeDaysAgo, type: 'Compra Web', note: 'Adquirió Maleta Inteligente AVYRA Pro y Adaptador Universal [DEMO]' }
+            ]
+          },
+          {
+            id: 'CLI-002',
+            firstName: 'Carlos',
+            lastName: 'Benítez [DEMO]',
+            email: 'carlos.benitez@demo.ec',
+            phone: '593987654321',
+            address: 'Urdesa Central, Calle Primera 412',
+            city: 'Guayaquil',
+            province: 'Guayas',
+            registeredAt: threeDaysAgo,
+            segment: 'Nuevo',
+            preferences: 'Mochilas, Organización',
+            marketingConsent: true,
+            interactions: [
+              { date: yesterday, type: 'Consulta WhatsApp', note: 'Consultó medidas de cabina de la Mochila Travel Elite [DEMO]' }
+            ]
+          },
+          {
+            id: 'CLI-003',
+            firstName: 'Sofía',
+            lastName: 'Espinosa [DEMO]',
+            email: 'sofia.espinosa@demo.ec',
+            phone: '593995556677',
+            address: 'Av. Solano 3-45 y Remigio Crespo',
+            city: 'Cuenca',
+            province: 'Azuay',
+            registeredAt: tenDaysAgo,
+            segment: 'Potencial',
+            preferences: 'Confort de vuelo',
+            marketingConsent: false,
+            interactions: [
+              { date: tenDaysAgo, type: 'Registro Newsletter', note: 'Se registró sin autorización de envíos promocionales [DEMO]' }
+            ]
+          }
+        ],
+        // 4. PEDIDOS Y VENTAS [DEMO]
+        orders: [
+          {
+            id: 'ORD-2026-101',
+            date: threeDaysAgo,
+            channel: 'Tienda Virtual',
+            customerId: 'CLI-001',
+            customerName: 'Andrea Montalvo [DEMO]',
+            customerEmail: 'andrea.montalvo@demo.ec',
+            customerPhone: '593991234567',
+            shippingAddress: 'Av. República del Salvador N34-120',
+            city: 'Quito',
+            province: 'Pichincha',
+            items: [
+              { productId: 'PRD-001', sku: 'AVY-001', name: 'Maleta Inteligente AVYRA Pro', qty: 1, price: 159.00 },
+              { productId: 'PRD-005', sku: 'AVY-005', name: 'Adaptador Universal AVYRA', qty: 1, price: 39.00 }
+            ],
+            subtotal: 198.00,
+            iva: 29.70,
+            total: 227.70,
+            paymentMethod: 'Tarjeta de Crédito (Payphone/Datafast)',
+            status: 'Entregado',
+            logistics: {
+              carrier: 'Servientrega Ecuador',
+              tracking: 'SER-EC-8849201',
+              dispatchStatus: 'Entregado',
+              updatedAt: yesterday
+            }
+          },
+          {
+            id: 'ORD-2026-102',
+            date: today,
+            channel: 'Tienda Virtual',
+            customerId: 'CLI-002',
+            customerName: 'Carlos Benítez [DEMO]',
+            customerEmail: 'carlos.benitez@demo.ec',
+            customerPhone: '593987654321',
+            shippingAddress: 'Urdesa Central, Calle Primera 412',
+            city: 'Guayaquil',
+            province: 'Guayas',
+            items: [
+              { productId: 'PRD-002', sku: 'AVY-002', name: 'Mochila Travel Elite', qty: 1, price: 89.00 },
+              { productId: 'PRD-004', sku: 'AVY-004', name: 'Organizador Tech Travel', qty: 1, price: 24.50 }
+            ],
+            subtotal: 113.50,
+            iva: 17.03,
+            total: 130.53,
+            paymentMethod: 'Transferencia Bancaria (Banco Pichincha)',
+            status: 'Confirmado',
+            logistics: {
+              carrier: 'Laarcourier',
+              tracking: 'LAAR-992014',
+              dispatchStatus: 'En Preparación',
+              updatedAt: today
+            }
+          }
+        ],
+        // 5. FINANZAS (Ingresos y Egresos)
+        financeEntries: [
+          {
+            id: 'FIN-001',
+            date: threeDaysAgo,
+            type: 'Ingreso',
+            category: 'Ventas E-Commerce',
+            description: 'Venta Pedido ORD-2026-101 - Andrea Montalvo [DEMO]',
+            amount: 227.70,
+            reference: 'ORD-2026-101'
+          },
+          {
+            id: 'FIN-002',
+            date: today,
+            type: 'Ingreso',
+            category: 'Ventas E-Commerce',
+            description: 'Venta Pedido ORD-2026-102 - Carlos Benítez [DEMO]',
+            amount: 130.53,
+            reference: 'ORD-2026-102'
+          },
+          {
+            id: 'FIN-003',
+            date: yesterday,
+            type: 'Egreso',
+            category: 'Marketing Digital',
+            description: 'Pauta Meta Ads Colección Viajeros Ecuador [DEMO]',
+            amount: 45.00,
+            reference: 'GASTO-MKT-01'
+          },
+          {
+            id: 'FIN-004',
+            date: threeDaysAgo,
+            type: 'Egreso',
+            category: 'Logística y Envíos',
+            description: 'Guías prepagadas Courier Nacional [DEMO]',
+            amount: 18.50,
+            reference: 'GASTO-LOG-01'
+          }
+        ],
+        // 6. ATENCIÓN AL CLIENTE (Tickets CRM)
+        tickets: [
+          {
+            id: 'TCK-001',
+            date: yesterday,
+            customerId: 'CLI-002',
+            customerName: 'Carlos Benítez [DEMO]',
+            orderId: 'ORD-2026-102',
+            type: 'Consulta',
+            subject: 'Confirmación de horario de entrega en Guayaquil [DEMO]',
+            description: 'El cliente solicita que el courier entregue preferentemente en horario vespertino.',
+            status: 'En Proceso',
+            priority: 'Media'
+          },
+          {
+            id: 'TCK-002',
+            date: threeDaysAgo,
+            customerId: 'CLI-001',
+            customerName: 'Andrea Montalvo [DEMO]',
+            orderId: 'ORD-2026-101',
+            type: 'Solicitud',
+            subject: 'Manual de configuración candado TSA Maleta AVY-001 [DEMO]',
+            description: 'Se envió guía digital PDF por WhatsApp y correo electrónico.',
+            status: 'Resuelto',
+            priority: 'Baja'
+          }
+        ],
+        // 7. MARKETING Y CAMPAÑAS
+        campaigns: [
+          {
+            id: 'CMP-001',
+            name: 'Escapada Feriado Ecuador 15% OFF [DEMO]',
+            code: 'BEYOND15',
+            discountPct: 15,
+            targetSegment: 'Todos',
+            targetProduct: 'Maleta Inteligente AVYRA Pro',
+            status: 'Activa',
+            sentCount: 2,
+            conversions: 1,
+            createdAt: threeDaysAgo
+          }
+        ],
+        // 8. LOGS DE API / WEBHOOKS EN TIEMPO REAL
+        apiLogs: [
+          {
+            id: 'WH-9001',
+            timestamp: new Date().toISOString(),
+            endpoint: 'POST /api/v1/webhooks/order-created',
+            source: 'AVYRA Storefront',
+            status: '200 OK',
+            payload: {
+              event: 'order.confirmed',
+              orderId: 'ORD-2026-102',
+              customer: 'carlos.benitez@demo.ec',
+              stockUpdated: ['AVY-002 (-1)', 'AVY-004 (-1)'],
+              financeSynced: true
+            }
+          }
+        ]
+      };
+    }
+
+    // Estado Global de la Aplicación
+    let db = loadDatabase();
+    let currentUser = loadSession();
+    let activeTab = 'dashboard';
+    let mobileMenuOpen = false;
+    let cart = []; // Carrito del Simulador de Tienda Virtual
+
+    // Filtros activos por módulo
+    let filters = {
+      inventorySearch: '',
+      inventoryCategory: 'Todas',
+      ordersStatus: 'Todos',
+      ordersSearch: '',
+      customersSegment: 'Todos',
+      customersSearch: '',
+      ticketsStatus: 'Todos',
+      reportFrom: new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0],
+      reportTo: new Date().toISOString().split('T')[0]
+    };
+
+    function loadDatabase() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) {
+          const init = getInitialDatabase();
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(init));
+          return init;
+        }
+        return JSON.parse(raw);
+      } catch (e) {
+        console.error('Error cargando DB:', e);
+        return getInitialDatabase();
+      }
+    }
+
+    function saveDatabase() {
+      db.meta.lastSync = new Date().toISOString();
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+    }
+
+    function loadSession() {
+      try {
+        const raw = localStorage.getItem(SESSION_KEY);
+        return raw ? JSON.parse(raw) : null;
+      } catch {
+        return null;
+      }
+    }
+
+    function saveSession(userObj) {
+      currentUser = userObj;
+      if (userObj) {
+        localStorage.setItem(SESSION_KEY, JSON.stringify(userObj));
+      } else {
+        localStorage.removeItem(SESSION_KEY);
+      }
+    }
+
+    function resetDemoData() {
+      db = getInitialDatabase();
+      cart = [];
+      saveDatabase();
+      showToast('Datos de demostración AVYRA reiniciados correctamente (210 unidades iniciales).', 'success');
+      render();
+    }
+
+    // Utilidades de formato
+    const fmtMoney = (n) => new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD' }).format(Number(n) || 0);
+    const todayStr = () => new Date().toISOString().split('T')[0];
+
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      const id = 'toast-' + Date.now();
+      const colors = {
+        success: 'bg-emerald-900 text-white border-emerald-700',
+        error: 'bg-avyra-burgundy text-white border-red-800',
+        warning: 'bg-amber-800 text-white border-amber-600',
+        info: 'bg-avyra-navy text-white border-avyra-navyLight'
+      };
+      const el = document.createElement('div');
+      el.id = id;
+      el.className = `pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg border text-sm font-medium fade-in ${colors[type] || colors.info}`;
+      el.innerHTML = `
+        <span class="flex-1">${message}</span>
+        <button onclick="this.parentElement.remove()" class="opacity-70 hover:opacity-100">&times;</button>
+      `;
+      container.appendChild(el);
+      setTimeout(() => {
+        const target = document.getElementById(id);
+        if (target) target.remove();
+      }, 4200);
+    }
+
+    function openModal(htmlContent, maxWidthClass = 'max-w-2xl') {
+      const backdrop = document.getElementById('modal-backdrop');
+      const panel = document.getElementById('modal-panel');
+      panel.className = `bg-white rounded-2xl shadow-2xl border border-avyra-border w-full ${maxWidthClass} overflow-hidden my-8 fade-in`;
+      panel.innerHTML = htmlContent;
+      backdrop.classList.remove('hidden');
+      backdrop.classList.add('flex');
+      lucide.createIcons();
+    }
+
+    function closeModal() {
+      const backdrop = document.getElementById('modal-backdrop');
+      backdrop.classList.add('hidden');
+      backdrop.classList.remove('flex');
+    }
+
+    // Verificar permisos según el rol activo
+    function hasPermission(moduleId) {
+      if (!currentUser) return false;
+      const roleCfg = ROLES_CONFIG[currentUser.role];
+      return roleCfg ? roleCfg.modules.includes(moduleId) : false;
+    }
+
+    /**
+     * ============================================================================
+     * MOTOR DE INTEGRACIÓN TRANSACCIONAL (ERP <-> CRM <-> TIENDA VIRTUAL)
+     * ============================================================================
+     */
+    function processIntegratedOrder({
+      channel,
+      customerData,
+      items,
+      paymentMethod,
+      discountCode = '',
+      initialStatus = 'Confirmado'
+    }) {
+      // 1. Validar stock disponible
+      for (const item of items) {
+        const prod = db.products.find(p => p.id === item.productId);
+        if (!prod) throw new Error(`Producto no encontrado: ${item.name}`);
+        if (prod.stock < item.qty) {
+          throw new Error(`Stock insuficiente para ${prod.name} (Disponible: ${prod.stock}, Solicitado: ${item.qty})`);
+        }
+      }
+
+      // 2. Sincronizar Cliente en CRM (Crear o Actualizar)
+      let customer = db.customers.find(c => c.email.toLowerCase() === customerData.email.toLowerCase());
+      const nowDate = todayStr();
+
+      if (!customer) {
+        customer = {
+          id: 'CLI-' + String(db.customers.length + 1).padStart(3, '0'),
+          firstName: customerData.firstName,
+          lastName: customerData.lastName,
+          email: customerData.email,
+          phone: customerData.phone || '593990000000',
+          address: customerData.address,
+          city: customerData.city,
+          province: customerData.province,
+          registeredAt: nowDate,
+          segment: 'Nuevo',
+          preferences: items.map(i => i.name).join(', '),
+          marketingConsent: Boolean(customerData.marketingConsent),
+          interactions: [
+            { date: nowDate, type: `Registro & Compra (${channel})`, note: 'Cliente incorporado automáticamente desde flujo de ventas.' }
+          ]
+        };
+        db.customers.unshift(customer);
+      } else {
+        // Actualizar datos y clasificación automática
+        customer.address = customerData.address || customer.address;
+        customer.city = customerData.city || customer.city;
+        customer.province = customerData.province || customer.province;
+        customer.phone = customerData.phone || customer.phone;
+        const pastOrdersCount = db.orders.filter(o => o.customerId === customer.id && o.status !== 'Cancelado').length;
+        if (pastOrdersCount >= 2) customer.segment = 'Frecuente';
+        else if (pastOrdersCount === 1) customer.segment = 'Recurrente';
+        customer.interactions.unshift({
+          date: nowDate,
+          type: `Nueva Compra (${channel})`,
+          note: `Realizó pedido con ${items.length} artículo(s).`
+        });
+      }
+
+      // 3. Calcular totales y descuentos
+      let rawSubtotal = items.reduce((acc, i) => acc + (i.price * i.qty), 0);
+      let discountAmount = 0;
+      if (discountCode) {
+        const camp = db.campaigns.find(c => c.code.toUpperCase() === discountCode.trim().toUpperCase() && c.status === 'Activa');
+        if (camp) {
+          discountAmount = rawSubtotal * (camp.discountPct / 100);
+          camp.conversions += 1;
+        }
+      }
+      const subtotal = Math.max(0, rawSubtotal - discountAmount);
+      const iva = Number((subtotal * db.meta.ivaRate).toFixed(2));
+      const total = Number((subtotal + iva).toFixed(2));
+
+      const orderId = 'ORD-2026-' + (101 + db.orders.length);
+
+      // 4. Descontar Stock en Inventario y Registrar Kardex
+      const stockLogs = [];
+      items.forEach(item => {
+        const prod = db.products.find(p => p.id === item.productId);
+        const prevStock = prod.stock;
+        prod.stock -= item.qty;
+        stockLogs.push(`${prod.sku} (-${item.qty})`);
+        db.inventoryMovements.unshift({
+          id: 'MOV-' + (1001 + db.inventoryMovements.length),
+          date: nowDate,
+          sku: prod.sku,
+          productName: prod.name,
+          type: 'Salida por Venta',
+          qty: -item.qty,
+          prevStock,
+          newStock: prod.stock,
+          reference: orderId,
+          user: currentUser ? currentUser.fullName : 'Tienda Online API'
+        });
+      });
+
+      // 5. Crear Pedido en ERP + Orden Logística Ecuador
+      const newOrder = {
+        id: orderId,
+        date: nowDate,
+        channel,
+        customerId: customer.id,
+        customerName: `${customer.firstName} ${customer.lastName}`,
+        customerEmail: customer.email,
+        customerPhone: customer.phone,
+        shippingAddress: customer.address,
+        city: customer.city,
+        province: customer.province,
+        items: items.map(i => ({ ...i })),
+        subtotal,
+        discountAmount,
+        discountCode: discountCode ? discountCode.toUpperCase() : '',
+        iva,
+        total,
+        paymentMethod,
+        status: initialStatus,
+        logistics: {
+          carrier: 'Servientrega Ecuador',
+          tracking: 'SER-EC-' + Math.floor(1000000 + Math.random() * 9000000),
+          dispatchStatus: 'En Preparación',
+          updatedAt: nowDate
+        }
+      };
+      db.orders.unshift(newOrder);
+
+      // 6. Registrar Ingreso en Módulo Financiero (si no está cancelado)
+      if (initialStatus !== 'Cancelado') {
+        db.financeEntries.unshift({
+          id: 'FIN-' + String(db.financeEntries.length + 1).padStart(3, '0'),
+          date: nowDate,
+          type: 'Ingreso',
+          category: channel === 'Tienda Virtual' ? 'Ventas E-Commerce' : 'Ventas Directas ERP',
+          description: `Venta ${orderId} - ${newOrder.customerName}`,
+          amount: total,
+          reference: orderId
+        });
+      }
+
+      // 7. Registrar Evento en Monitor API / Webhook
+      const webhookEvent = {
+        id: 'WH-' + Math.floor(1000 + Math.random() * 9000),
+        timestamp: new Date().toISOString(),
+        endpoint: channel === 'Tienda Virtual' ? 'POST /api/v1/storefront/checkout' : 'POST /api/v1/erp/orders',
+        source: channel,
+        status: '201 Created',
+        payload: {
+          orderId,
+          customerId: customer.id,
+          totalUSD: total,
+          inventoryUpdated: stockLogs,
+          crmSynced: true,
+          logisticsAssigned: newOrder.logistics.tracking
+        }
+      };
+      db.apiLogs.unshift(webhookEvent);
+
+      saveDatabase();
+      return { order: newOrder, customer, webhookEvent };
+    }
+
+    /**
+     * Cambio de estado de pedido con reversión automática de inventario y finanzas
+     * en caso de Cancelación o Devolución.
+     */
+    function updateOrderStatus(orderId, newStatus) {
+      const order = db.orders.find(o => o.id === orderId);
+      if (!order) return;
+      const oldStatus = order.status;
+      if (oldStatus === newStatus) return;
+
+      const wasActive = !['Cancelado', 'Devuelto'].includes(oldStatus);
+      const becomesInactive = ['Cancelado', 'Devuelto'].includes(newStatus);
+      const nowDate = todayStr();
+
+      // Si pasa de activo a Cancelado/Devuelto -> Revertir stock y registrar egreso/reverso financiero
+      if (wasActive && becomesInactive) {
+        order.items.forEach(item => {
+          const prod = db.products.find(p => p.id === item.productId);
+          if (prod) {
+            const prevStock = prod.stock;
+            prod.stock += item.qty;
+            db.inventoryMovements.unshift({
+              id: 'MOV-' + (1001 + db.inventoryMovements.length),
+              date: nowDate,
+              sku: prod.sku,
+              productName: prod.name,
+              type: newStatus === 'Devuelto' ? 'Entrada por Devolución' : 'Reverso por Cancelación',
+              qty: item.qty,
+              prevStock,
+              newStock: prod.stock,
+              reference: order.id,
+              user: currentUser.fullName
+            });
+          }
+        });
+
+        db.financeEntries.unshift({
+          id: 'FIN-' + String(db.financeEntries.length + 1).padStart(3, '0'),
+          date: nowDate,
+          type: 'Egreso',
+          category: 'Devoluciones y Reversos',
+          description: `Reverso por pedido ${newStatus}: ${order.id} (${order.customerName})`,
+          amount: order.total,
+          reference: order.id
+        });
+
+        const cust = db.customers.find(c => c.id === order.customerId);
+        if (cust) {
+          cust.interactions.unshift({
+            date: nowDate,
+            type: `Pedido ${newStatus}`,
+            note: `El pedido ${order.id} cambió a estado ${newStatus}. Stock reintegrado.`
+          });
+        }
+      }
+
+      // Sincronizar estado logístico si el pedido se marca Entregado
+      if (newStatus === 'Entregado' && order.logistics) {
+        order.logistics.dispatchStatus = 'Entregado';
+        order.logistics.updatedAt = nowDate;
+      } else if (newStatus === 'En Ruta' && order.logistics) {
+        order.logistics.dispatchStatus = 'En Tránsito';
+        order.logistics.updatedAt = nowDate;
+      }
+
+      order.status = newStatus;
+      saveDatabase();
+      showToast(`Pedido ${orderId} actualizado a "${newStatus}"`, 'success');
+      render();
+    }
+
+    /**
+     * ============================================================================
+     * RENDERIZADO PRINCIPAL Y PANTALLA DE LOGIN
+     * ============================================================================
+     */
+    function render() {
+      const app = document.getElementById('app');
+      if (!currentUser) {
+        app.innerHTML = renderLoginScreen();
+        lucide.createIcons();
+        return;
+      }
+
+      // Asegurar que la pestaña activa esté permitida para el rol actual
+      if (!hasPermission(activeTab)) {
+        activeTab = ROLES_CONFIG[currentUser.role].modules[0] || 'dashboard';
+      }
+
+      app.innerHTML = `
+        <div class="min-h-screen flex flex-col lg:flex-row bg-avyra-beige">
+          ${renderSidebar()}
+          <div class="flex-1 flex flex-col min-w-0">
+            ${renderTopHeader()}
+            <main class="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1600px] w-full mx-auto fade-in">
+              ${renderActiveModule()}
+            </main>
+          </div>
+        </div>
+      `;
+      lucide.createIcons();
+    }
+
+    function renderLoginScreen() {
+      return `
+        <div class="min-h-screen bg-avyra-navy flex items-center justify-center p-4 relative overflow-hidden">
+          <!-- Elementos decorativos sutiles -->
+          <div class="absolute -top-24 -right-24 w-96 h-96 rounded-full bg-avyra-burgundy/20 blur-3xl pointer-events-none"></div>
+          <div class="absolute -bottom-24 -left-24 w-96 h-96 rounded-full bg-blue-500/10 blur-3xl pointer-events-none"></div>
+
+          <div class="bg-white rounded-3xl shadow-2xl max-w-4xl w-full grid grid-cols-1 md:grid-cols-12 overflow-hidden border border-white/10 z-10">
+            <!-- Columna Marca AVYRA -->
+            <div class="md:col-span-5 bg-avyra-navyLight text-white p-8 flex flex-col justify-between border-r border-white/10">
+              <div>
+                <div class="inline-flex items-center gap-2.5 px-3 py-1 rounded-full bg-white/10 text-xs font-semibold tracking-wider uppercase mb-6">
+                  <span class="w-2 h-2 rounded-full bg-avyra-burgundy"></span>
+                  Suite Empresarial Ecuador
+                </div>
+                <h1 class="text-4xl font-extrabold tracking-tight">AVYRA</h1>
+                <p class="text-xs tracking-[0.28em] text-avyra-beigeDark/80 font-semibold mt-1">BEYOND EVERY JOURNEY</p>
+                <p class="text-sm text-slate-300 mt-6 leading-relaxed">
+                  Plataforma centralizada de planificación de recursos empresariales (ERP), gestión de relaciones con clientes (CRM) y sincronización omnicanal para artículos de viaje.
+                </p>
+              </div>
+
+              <div class="space-y-3 pt-8 border-t border-white/10 text-xs text-slate-300">
+                <div class="flex items-center gap-2">
+                  <i data-lucide="shield-check" class="w-4 h-4 text-emerald-400"></i>
+                  <span>Control de acceso basado en roles (RBAC)</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <i data-lucide="refresh-cw" class="w-4 h-4 text-amber-300"></i>
+                  <span>Sincronización en tiempo real ERP ↔ CRM ↔ Tienda</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <i data-lucide="database" class="w-4 h-4 text-sky-300"></i>
+                  <span>Persistencia local activa (6 SKUs / 210 uds base)</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Columna Formulario y Selector Rápido de Roles -->
+            <div class="md:col-span-7 p-8 sm:p-10 bg-white">
+              <h2 class="text-2xl font-bold text-avyra-navy">Iniciar Sesión en el Sistema</h2>
+              <p class="text-sm text-avyra-slate mt-1">Selecciona un perfil de demostración o ingresa credenciales válidas.</p>
+
+              <form onsubmit="handleLoginSubmit(event)" class="mt-6 space-y-4">
+                <div>
+                  <label class="block text-xs font-bold uppercase tracking-wider text-avyra-navy mb-1.5">Rol / Perfil Operativo</label>
+                  <select id="login-role" onchange="autofillLoginByRole(this.value)" class="w-full px-3.5 py-2.5 rounded-xl border border-avyra-border bg-avyra-beige/40 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-avyra-burgundy">
+                    ${Object.values(ROLES_CONFIG).map(r => `
+                      <option value="${r.id}">${r.name} — (${r.badge})</option>
+                    `).join('')}
+                  </select>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-avyra-navy mb-1.5">Correo Corporativo</label>
+                    <input id="login-email" type="email" required value="admin@avyra.ec"
+                      class="w-full px-3.5 py-2.5 rounded-xl border border-avyra-border text-sm focus:outline-none focus:ring-2 focus:ring-avyra-burgundy" />
+                  </div>
+                  <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-avyra-navy mb-1.5">Clave de Acceso</label>
+                    <input id="login-pass" type="password" required minlength="4" value="avyra2026"
+                      class="w-full px-3.5 py-2.5 rounded-xl border border-avyra-border text-sm focus:outline-none focus:ring-2 focus:ring-avyra-burgundy" />
+                  </div>
+                </div>
+
+                <button type="submit" class="w-full py-3 px-4 rounded-xl bg-avyra-burgundy hover:bg-avyra-burgundyHover text-white font-semibold text-sm shadow-md transition flex items-center justify-center gap-2">
+                  <i data-lucide="log-in" class="w-4 h-4"></i>
+                  Ingresar al Panel Administrativo
+                </button>
+              </form>
+
+              <!-- Accesos Directos de Prueba por Rol -->
+              <div class="mt-7 pt-6 border-t border-avyra-border">
+                <p class="text-xs font-bold uppercase tracking-wider text-avyra-slate mb-3">Acceso Rápido por Rol de Prueba [DEMO]:</p>
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  ${Object.values(ROLES_CONFIG).map(r => `
+                    <button type="button" onclick="quickLogin('${r.id}')"
+                      class="text-left p-2.5 rounded-xl border border-avyra-border hover:border-avyra-burgundy hover:bg-avyra-beige/50 transition group">
+                      <div class="text-xs font-bold text-avyra-navy group-hover:text-avyra-burgundy truncate">${r.name.split(' ')[0]}</div>
+                      <div class="text-[11px] text-avyra-slate truncate">${r.badge}</div>
+                    </button>
+                  `).join('')}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function autofillLoginByRole(roleId) {
+      const cfg = ROLES_CONFIG[roleId];
+      if (cfg) {
+        document.getElementById('login-email').value = cfg.user;
+      }
+    }
+
+    function handleLoginSubmit(e) {
+      e.preventDefault();
+      const roleId = document.getElementById('login-role').value;
+      const email = document.getElementById('login-email').value.trim();
+      const pass = document.getElementById('login-pass').value;
+      if (!email || pass.length < 4) {
+        showToast('Verifica tu correo y contraseña (mínimo 4 caracteres).', 'error');
+        return;
+      }
+      quickLogin(roleId, email);
+    }
+
+    function quickLogin(roleId, customEmail = null) {
+      const cfg = ROLES_CONFIG[roleId] || ROLES_CONFIG.admin;
+      saveSession({
+        role: cfg.id,
+        roleName: cfg.name,
+        email: customEmail || cfg.user,
+        fullName: cfg.fullName,
+        loginAt: new Date().toISOString()
+      });
+      activeTab = cfg.modules[0];
+      showToast(`Bienvenido, ${cfg.fullName} (${cfg.name})`, 'success');
+      render();
+    }
+
+    function logout() {
+      saveSession(null);
+      render();
+    }
+
+    /**
+     * ============================================================================
+     * NAVEGACIÓN LATERAL Y CABECERA SUPERIOR
+     * ============================================================================
+     */
+    function renderSidebar() {
+      const navSections = [
+        {
+          title: 'General',
+          items: [
+            { id: 'dashboard', label: 'Panel Principal', icon: 'layout-dashboard' },
+            { id: 'storefront', label: 'Tienda Online & API', icon: 'shopping-bag', highlight: true }
+          ]
+        },
+        {
+          title: 'Módulo ERP',
+          items: [
+            { id: 'inventory', label: 'Productos e Inventario', icon: 'package' },
+            { id: 'purchases', label: 'Compras y Proveedores', icon: 'truck' },
+            { id: 'sales', label: 'Ventas y Pedidos', icon: 'receipt' },
+            { id: 'finance', label: 'Gestión Financiera', icon: 'wallet' },
+            { id: 'logistics', label: 'Logística Ecuador', icon: 'map-pin' }
+          ]
+        },
+        {
+          title: 'Módulo CRM',
+          items: [
+            { id: 'customers', label: 'Clientes y Perfil 360°', icon: 'users' },
+            { id: 'support', label: 'Atención al Cliente', icon: 'headphones' },
+            { id: 'marketing', label: 'Marketing y Campañas', icon: 'megaphone' }
+          ]
+        },
+        {
+          title: 'Inteligencia y Sistema',
+          items: [
+            { id: 'reports', label: 'Reportes y Exportación', icon: 'bar-chart-3' },
+            { id: 'docs', label: 'Arquitectura & Guía', icon: 'book-open' }
+          ]
+        }
+      ];
+
+      const lowStockCount = db.products.filter(p => p.stock <= p.minStock).length;
+      const pendingOrdersCount = db.orders.filter(o => ['Pendiente', 'Confirmado'].includes(o.status)).length;
+      const openTicketsCount = db.tickets.filter(t => t.status !== 'Resuelto').length;
+
+      const renderNavItems = () => navSections.map(sec => {
+        const visibleItems = sec.items.filter(item => hasPermission(item.id));
+        if (visibleItems.length === 0) return '';
+        return `
+          <div class="mb-5">
+            <div class="px-3 mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400/80">${sec.title}</div>
+            <div class="space-y-1">
+              ${visibleItems.map(item => {
+                const isActive = activeTab === item.id;
+                let badge = '';
+                if (item.id === 'inventory' && lowStockCount > 0) {
+                  badge = `<span class="ml-auto px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-amber-500 text-avyra-navy">${lowStockCount}</span>`;
+                } else if (item.id === 'sales' && pendingOrdersCount > 0) {
+                  badge = `<span class="ml-auto px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-avyra-burgundy text-white">${pendingOrdersCount}</span>`;
+                } else if (item.id === 'support' && openTicketsCount > 0) {
+                  badge = `<span class="ml-auto px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-sky-500 text-avyra-navy">${openTicketsCount}</span>`;
+                }
+
+                return `
+                  <button onclick="switchTab('${item.id}')"
+                    class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition ${
+                      isActive
+                        ? 'bg-avyra-burgundy text-white shadow-sm'
+                        : item.highlight
+                          ? 'bg-white/10 text-amber-200 hover:bg-white/15'
+                          : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                    }">
+                    <i data-lucide="${item.icon}" class="w-4 h-4 shrink-0"></i>
+                    <span class="truncate">${item.label}</span>
+                    ${badge}
+                  </button>
+                `;
+              }).join('')}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      return `
+        <!-- Backdrop móvil -->
+        ${mobileMenuOpen ? `<div onclick="toggleMobileMenu()" class="fixed inset-0 bg-black/50 z-30 lg:hidden"></div>` : ''}
+
+        <aside class="fixed lg:static inset-y-0 left-0 z-40 w-68 bg-avyra-navy text-white flex flex-col transition-transform duration-200 ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'} shrink-0 border-r border-white/10">
+          <!-- Marca -->
+          <div class="p-6 border-b border-white/10 flex items-center justify-between">
+            <div>
+              <div class="flex items-center gap-2">
+                <div class="w-8 h-8 rounded-lg bg-avyra-burgundy flex items-center justify-center font-extrabold text-white text-lg shadow">A</div>
+                <div>
+                  <div class="font-extrabold text-xl tracking-tight leading-none">AVYRA</div>
+                  <div class="text-[9px] tracking-[0.22em] text-avyra-beigeDark/75 font-semibold mt-1">BEYOND EVERY JOURNEY</div>
+                </div>
+              </div>
+            </div>
+            <button onclick="toggleMobileMenu()" class="lg:hidden text-slate-300 hover:text-white">
+              <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+          </div>
+
+          <!-- Navegación -->
+          <nav class="flex-1 overflow-y-auto p-4">
+            ${renderNavItems()}
+          </nav>
+
+          <!-- Pie Sidebar: Control de Datos Demo -->
+          <div class="p-4 border-t border-white/10 bg-avyra-navyLight/50 space-y-2">
+            <div class="flex items-center justify-between text-[11px] text-slate-300">
+              <span>Estado Sincronización</span>
+              <span class="inline-flex items-center gap-1 text-emerald-400 font-semibold">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> En Línea
+              </span>
+            </div>
+            <button onclick="confirmResetDemo()"
+              class="w-full py-2 px-3 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-slate-200 flex items-center justify-center gap-2 transition">
+              <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+              Reiniciar Datos [DEMO]
+            </button>
+          </div>
+        </aside>
+      `;
+    }
+
+    function renderTopHeader() {
+      const totalUnits = db.products.reduce((s, p) => s + p.stock, 0);
+      return `
+        <header class="bg-white border-b border-avyra-border px-4 sm:px-8 py-3.5 flex items-center justify-between gap-4 sticky top-0 z-20">
+          <div class="flex items-center gap-3">
+            <button onclick="toggleMobileMenu()" class="lg:hidden p-2 rounded-lg border border-avyra-border text-avyra-navy hover:bg-avyra-beige">
+              <i data-lucide="menu" class="w-5 h-5"></i>
+            </button>
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-bold uppercase tracking-wider text-avyra-burgundy">AVYRA ERP & CRM</span>
+                <span class="text-slate-300">/</span>
+                <span class="text-xs font-medium text-avyra-slate capitalize">${getTabTitle(activeTab)}</span>
+              </div>
+              <p class="text-[11px] text-avyra-slate hidden sm:block">
+                Inventario activo: <strong class="text-avyra-navy">${totalUnits} unidades</strong> en ${db.products.length} referencias • IVA Ecuador: ${(db.meta.ivaRate * 100).toFixed(0)}%
+              </p>
+            </div>
+          </div>
+
+          <!-- Usuario conectado y acciones -->
+          <div class="flex items-center gap-3">
+            <div class="hidden md:flex flex-col text-right">
+              <span class="text-xs font-bold text-avyra-navy">${currentUser.fullName}</span>
+              <span class="text-[11px] text-avyra-burgundy font-semibold">${currentUser.roleName}</span>
+            </div>
+            <div class="w-9 h-9 rounded-full bg-avyra-navy text-white flex items-center justify-center font-bold text-sm">
+              ${currentUser.fullName.charAt(0)}
+            </div>
+            <button onclick="logout()" title="Cerrar Sesión"
+              class="px-3 py-2 rounded-xl border border-avyra-border hover:bg-avyra-beige text-xs font-semibold text-avyra-navy flex items-center gap-1.5 transition">
+              <i data-lucide="log-out" class="w-3.5 h-3.5 text-avyra-burgundy"></i>
+              <span class="hidden sm:inline">Salir</span>
+            </button>
+          </div>
+        </header>
+      `;
+    }
+
+    function getTabTitle(tab) {
+      const titles = {
+        dashboard: 'Panel Principal Ejecutivo',
+        storefront: 'Tienda Virtual AVYRA & API Sync',
+        inventory: 'ERP • Productos e Inventario (Kardex)',
+        purchases: 'ERP • Compras y Proveedores',
+        sales: 'ERP • Ventas y Pedidos',
+        finance: 'ERP • Gestión Financiera',
+        logistics: 'ERP • Logística Nacional Ecuador',
+        customers: 'CRM • Base de Datos de Clientes',
+        support: 'CRM • Atención al Cliente y Tickets',
+        marketing: 'CRM • Marketing y Fidelización',
+        reports: 'Reportes Ejecutivos y Exportación',
+        docs: 'Arquitectura de Datos & Manual Operativo'
+      };
+      return titles[tab] || tab;
+    }
+
+    function switchTab(tabId) {
+      activeTab = tabId;
+      mobileMenuOpen = false;
+      render();
+    }
+
+    function toggleMobileMenu() {
+      mobileMenuOpen = !mobileMenuOpen;
+      render();
+    }
+
+    function confirmResetDemo() {
+      openModal(`
+        <div class="p-6">
+          <div class="flex items-center gap-3 text-avyra-burgundy mb-3">
+            <i data-lucide="alert-triangle" class="w-6 h-6"></i>
+            <h3 class="text-lg font-bold text-avyra-navy">Reiniciar Base de Datos de Demostración</h3>
+          </div>
+          <p class="text-sm text-avyra-slate leading-relaxed">
+            Esta acción restaurará el catálogo inicial de <strong>6 productos de AVYRA (210 unidades exactas)</strong> y los registros marcados como <code>[DEMO]</code>. Los cambios temporales realizados en esta sesión se restablecerán.
+          </p>
+          <div class="mt-6 flex justify-end gap-3">
+            <button onclick="closeModal()" class="px-4 py-2 rounded-xl border border-avyra-border text-sm font-semibold text-avyra-navy hover:bg-avyra-beige">Cancelar</button>
+            <button onclick="closeModal(); resetDemoData();" class="px-4 py-2 rounded-xl bg-avyra-burgundy text-white text-sm font-semibold hover:bg-avyra-burgundyHover">Sí, Reiniciar Datos</button>
+          </div>
+        </div>
+      `, 'max-w-md');
+    }
+
+    /**
+     * ============================================================================
+     * ENRUTADOR DE VISTAS DE MÓDULOS
+     * ============================================================================
+     */
+    function renderActiveModule() {
+      switch (activeTab) {
+        case 'dashboard': return renderDashboard();
+        case 'inventory': return renderInventoryModule();
+        case 'purchases': return renderPurchasesModule();
+        case 'sales': return renderSalesModule();
+        case 'finance': return renderFinanceModule();
+        case 'logistics': return renderLogisticsModule();
+        case 'customers': return renderCustomersModule();
+        case 'support': return renderSupportModule();
+        case 'marketing': return renderMarketingModule();
+        case 'storefront': return renderStorefrontModule();
+        case 'reports': return renderReportsModule();
+        case 'docs': return renderDocsModule();
+        default: return renderDashboard();
+      }
+    }
+
+    /**
+     * ============================================================================
+     * 1. PANEL PRINCIPAL (DASHBOARD DINÁMICO EN TIEMPO REAL)
+     * ============================================================================
+     */
+    function renderDashboard() {
+      const today = todayStr();
+      const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+      const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+
+      const validOrders = db.orders.filter(o => !['Cancelado', 'Devuelto'].includes(o.status));
+      const salesToday = validOrders.filter(o => o.date === today).reduce((s, o) => s + o.total, 0);
+      const salesWeek = validOrders.filter(o => o.date >= weekAgo).reduce((s, o) => s + o.total, 0);
+      const salesMonth = validOrders.filter(o => o.date >= monthAgo).reduce((s, o) => s + o.total, 0);
+
+      const pendingOrders = db.orders.filter(o => ['Pendiente', 'Confirmado', 'En Ruta'].includes(o.status)).length;
+      const deliveredOrders = db.orders.filter(o => o.status === 'Entregado').length;
+
+      const totalIncome = db.financeEntries.filter(f => f.type === 'Ingreso').reduce((s, f) => s + f.amount, 0);
+      const totalExpense = db.financeEntries.filter(f => f.type === 'Egreso').reduce((s, f) => s + f.amount, 0);
+      const netProfit = totalIncome - totalExpense;
+
+      const totalCustomers = db.customers.length;
+      const newCustomers = db.customers.filter(c => c.segment === 'Nuevo' || c.registeredAt >= weekAgo).length;
+
+      // Top productos más vendidos
+      const productSalesMap = {};
+      db.products.forEach(p => { productSalesMap[p.sku] = { name: p.name, sku: p.sku, qty: 0, revenue: 0 }; });
+      validOrders.forEach(o => {
+        o.items.forEach(item => {
+          if (!productSalesMap[item.sku]) productSalesMap[item.sku] = { name: item.name, sku: item.sku, qty: 0, revenue: 0 };
+          productSalesMap[item.sku].qty += item.qty;
+          productSalesMap[item.sku].revenue += item.qty * item.price;
+        });
+      });
+      const topProducts = Object.values(productSalesMap).sort((a, b) => b.qty - a.qty).slice(0, 5);
+      const maxSoldQty = Math.max(...topProducts.map(p => p.qty), 1);
+
+      // Alertas de stock bajo (stock <= minStock + 3 para alertas preventivas)
+      const lowStockProducts = db.products.filter(p => p.stock <= p.minStock);
+
+      // Datos para gráfico de barras por categoría
+      const categoryTotals = {};
+      db.products.forEach(p => {
+        categoryTotals[p.category] = (categoryTotals[p.category] || 0) + p.stock;
+      });
+      const catEntries = Object.entries(categoryTotals);
+      const maxCatStock = Math.max(...catEntries.map(c => c[1]), 1);
+
+      return `
+        <div class="space-y-6">
+          <!-- Banner Ejecutivo -->
+          <div class="bg-avyra-navy text-white rounded-2xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
+            <div>
+              <div class="inline-flex items-center gap-2 text-xs font-semibold text-amber-300 uppercase tracking-wider mb-1">
+                <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+                Resumen Operativo en Tiempo Real
+              </div>
+              <h1 class="text-2xl font-bold">Bienvenido al Centro de Control AVYRA</h1>
+              <p class="text-sm text-slate-300 mt-1">Todos los indicadores se calculan automáticamente a partir de las operaciones del ERP, CRM y Tienda Virtual.</p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              ${hasPermission('storefront') ? `
+                <button onclick="switchTab('storefront')" class="px-4 py-2.5 rounded-xl bg-avyra-burgundy hover:bg-avyra-burgundyHover text-white text-xs font-bold flex items-center gap-2 shadow">
+                  <i data-lucide="shopping-bag" class="w-4 h-4"></i>
+                  Probar Tienda Online
+                </button>
+              ` : ''}
+              ${hasPermission('sales') ? `
+                <button onclick="openNewOrderModal()" class="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold flex items-center gap-2">
+                  <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                  Registrar Venta
+                </button>
+              ` : ''}
+            </div>
+          </div>
+
+          <!-- KPI Grid Principal -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            <!-- Ventas Hoy / Semana / Mes -->
+            <div class="bg-white p-5 rounded-2xl border border-avyra-border shadow-2xs">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold uppercase tracking-wider text-avyra-slate">Ventas del Mes</span>
+                <div class="w-9 h-9 rounded-xl bg-avyra-burgundy/10 text-avyra-burgundy flex items-center justify-center">
+                  <i data-lucide="trending-up" class="w-5 h-5"></i>
+                </div>
+              </div>
+              <div class="text-2xl font-extrabold text-avyra-navy mt-2">${fmtMoney(salesMonth)}</div>
+              <div class="mt-3 pt-2.5 border-t border-avyra-border flex items-center justify-between text-xs text-avyra-slate">
+                <span>Hoy: <strong class="text-avyra-navy">${fmtMoney(salesToday)}</strong></span>
+                <span>Semana: <strong class="text-avyra-navy">${fmtMoney(salesWeek)}</strong></span>
+              </div>
+            </div>
+
+            <!-- Pedidos -->
+            <div class="bg-white p-5 rounded-2xl border border-avyra-border shadow-2xs">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold uppercase tracking-wider text-avyra-slate">Pedidos Totales</span>
+                <div class="w-9 h-9 rounded-xl bg-avyra-navy/10 text-avyra-navy flex items-center justify-center">
+                  <i data-lucide="shopping-cart" class="w-5 h-5"></i>
+                </div>
+              </div>
+              <div class="text-2xl font-extrabold text-avyra-navy mt-2">${db.orders.length} <span class="text-xs font-normal text-avyra-slate">órdenes</span></div>
+              <div class="mt-3 pt-2.5 border-t border-avyra-border flex items-center justify-between text-xs">
+                <span class="text-amber-700 font-semibold">En curso: ${pendingOrders}</span>
+                <span class="text-emerald-700 font-semibold">Entregados: ${deliveredOrders}</span>
+              </div>
+            </div>
+
+            <!-- Ingresos vs Gastos -->
+            <div class="bg-white p-5 rounded-2xl border border-avyra-border shadow-2xs">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold uppercase tracking-wider text-avyra-slate">Balance Financiero</span>
+                <div class="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center">
+                  <i data-lucide="dollar-sign" class="w-5 h-5"></i>
+                </div>
+              </div>
+              <div class="text-2xl font-extrabold ${netProfit >= 0 ? 'text-emerald-700' : 'text-avyra-burgundy'} mt-2">${fmtMoney(netProfit)}</div>
+              <div class="mt-3 pt-2.5 border-t border-avyra-border flex items-center justify-between text-xs">
+                <span class="text-emerald-700">Ing: <strong>${fmtMoney(totalIncome)}</strong></span>
+                <span class="text-avyra-burgundy">Egr: <strong>${fmtMoney(totalExpense)}</strong></span>
+              </div>
+            </div>
+
+            <!-- Clientes CRM -->
+            <div class="bg-white p-5 rounded-2xl border border-avyra-border shadow-2xs">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold uppercase tracking-wider text-avyra-slate">Comunidad CRM</span>
+                <div class="w-9 h-9 rounded-xl bg-sky-50 text-sky-700 flex items-center justify-center">
+                  <i data-lucide="users" class="w-5 h-5"></i>
+                </div>
+              </div>
+              <div class="text-2xl font-extrabold text-avyra-navy mt-2">${totalCustomers} <span class="text-xs font-normal text-avyra-slate">clientes</span></div>
+              <div class="mt-3 pt-2.5 border-t border-avyra-border flex items-center justify-between text-xs">
+                <span class="text-sky-700 font-semibold">Nuevos: +${newCustomers}</span>
+                <span class="text-avyra-slate">Tickets abiertos: ${db.tickets.filter(t => t.status !== 'Resuelto').length}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Fila de Gráficos y Top Productos -->
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <!-- Gráfico Comparativo de Stock por Categoría -->
+            <div class="lg:col-span-7 bg-white p-6 rounded-2xl border border-avyra-border shadow-2xs">
+              <div class="flex items-center justify-between mb-4">
+                <div>
+                  <h3 class="font-bold text-avyra-navy">Distribución de Inventario por Categoría</h3>
+                  <p class="text-xs text-avyra-slate">Unidades disponibles en bodega AVYRA Ecuador</p>
+                </div>
+                <span class="px-2.5 py-1 rounded-lg bg-avyra-beige text-xs font-bold text-avyra-navy">
+                  Total: ${db.products.reduce((s, p) => s + p.stock, 0)} uds
+                </span>
+              </div>
+              <div class="space-y-3.5 mt-4">
+                ${catEntries.map(([cat, qty]) => {
+                  const pct = Math.round((qty / maxCatStock) * 100);
+                  return `
+                    <div>
+                      <div class="flex justify-between text-xs font-semibold mb-1">
+                        <span class="text-avyra-navy">${cat}</span>
+                        <span class="text-avyra-slate">${qty} unidades</span>
+                      </div>
+                      <div class="w-full h-3 bg-avyra-beige rounded-full overflow-hidden">
+                        <div class="h-full bg-avyra-navy rounded-full transition-all duration-500" style="width: ${pct}%"></div>
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+
+              <!-- Resumen Financiero Visual -->
+              <div class="mt-6 pt-5 border-t border-avyra-border grid grid-cols-3 gap-3 text-center">
+                <div class="p-3 rounded-xl bg-avyra-beige/60">
+                  <div class="text-[11px] text-avyra-slate">Ingresos Brutos</div>
+                  <div class="text-sm font-extrabold text-emerald-700 mt-0.5">${fmtMoney(totalIncome)}</div>
+                </div>
+                <div class="p-3 rounded-xl bg-avyra-beige/60">
+                  <div class="text-[11px] text-avyra-slate">Gastos Operativos</div>
+                  <div class="text-sm font-extrabold text-avyra-burgundy mt-0.5">${fmtMoney(totalExpense)}</div>
+                </div>
+                <div class="p-3 rounded-xl bg-avyra-beige/60">
+                  <div class="text-[11px] text-avyra-slate">Ticket Promedio</div>
+                  <div class="text-sm font-extrabold text-avyra-navy mt-0.5">${fmtMoney(validOrders.length ? salesMonth / validOrders.length : 0)}</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Productos Más Vendidos -->
+            <div class="lg:col-span-5 bg-white p-6 rounded-2xl border border-avyra-border shadow-2xs">
+              <h3 class="font-bold text-avyra-navy">Productos Más Vendidos</h3>
+              <p class="text-xs text-avyra-slate mb-4">Ranking sincronizado con pedidos confirmados</p>
+              <div class="space-y-3.5">
+                ${topProducts.map((p, idx) => {
+                  const barPct = p.qty > 0 ? Math.max(12, Math.round((p.qty / maxSoldQty) * 100)) : 5;
+                  return `
+                    <div class="p-3 rounded-xl border border-avyra-border/70 bg-avyra-beige/30">
+                      <div class="flex items-center justify-between text-xs font-bold">
+                        <span class="text-avyra-navy truncate pr-2">${idx + 1}. ${p.name}</span>
+                        <span class="text-avyra-burgundy shrink-0">${p.qty} vend.</span>
+                      </div>
+                      <div class="flex items-center justify-between text-[11px] text-avyra-slate mt-1">
+                        <span class="font-mono">${p.sku}</span>
+                        <span>Facturado: ${fmtMoney(p.revenue)}</span>
+                      </div>
+                      <div class="w-full h-1.5 bg-avyra-border rounded-full mt-2 overflow-hidden">
+                        <div class="h-full bg-avyra-burgundy rounded-full" style="width: ${barPct}%"></div>
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+          </div>
+
+          <!-- Alertas de Inventario Mínimo y Actividad Reciente -->
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Alertas de Stock -->
+            <div class="bg-white p-6 rounded-2xl border border-avyra-border shadow-2xs">
+              <div class="flex items-center justify-between mb-4">
+                <h3 class="font-bold text-avyra-navy flex items-center gap-2">
+                  <i data-lucide="alert-circle" class="w-5 h-5 text-avyra-burgundy"></i>
+                  Alertas de Inventario Mínimo
+                </h3>
+                <span class="text-xs font-bold px-2.5 py-0.5 rounded-full ${lowStockProducts.length ? 'bg-red-100 text-avyra-burgundy' : 'bg-emerald-100 text-emerald-800'}">
+                  ${lowStockProducts.length} alerta(s)
+                </span>
+              </div>
+              ${lowStockProducts.length === 0 ? `
+                <div class="p-6 text-center rounded-xl bg-emerald-50/70 border border-emerald-200 text-emerald-800 text-sm">
+                  Todos los productos superan su umbral de stock mínimo configurado.
+                </div>
+              ` : `
+                <div class="space-y-2.5">
+                  ${lowStockProducts.map(p => `
+                    <div class="flex items-center justify-between p-3 rounded-xl bg-red-50 border border-red-200">
+                      <div>
+                        <div class="text-xs font-bold text-avyra-burgundy">${p.sku} — ${p.name}</div>
+                        <div class="text-[11px] text-slate-600">Stock actual: <strong>${p.stock} uds</strong> (Mínimo requerido: ${p.minStock})</div>
+                      </div>
+                      ${hasPermission('purchases') ? `
+                        <button onclick="switchTab('purchases')" class="px-3 py-1.5 rounded-lg bg-avyra-burgundy text-white text-xs font-semibold hover:bg-avyra-burgundyHover">
+                          Reabastecer
+                        </button>
+                      ` : ''}
+                    </div>
+                  `).join('')}
+                </div>
+              `}
+            </div>
+
+            <!-- Notificaciones Recientes del Sistema -->
+            <div class="bg-white p-6 rounded-2xl border border-avyra-border shadow-2xs">
+              <h3 class="font-bold text-avyra-navy flex items-center gap-2 mb-4">
+                <i data-lucide="bell" class="w-5 h-5 text-avyra-navy"></i>
+                Bitácora de Sincronización & Movimientos
+              </h3>
+              <div class="space-y-2.5 max-h-64 overflow-y-auto pr-1">
+                ${db.inventoryMovements.slice(0, 6).map(m => `
+                  <div class="flex items-start justify-between p-2.5 rounded-xl bg-avyra-beige/50 border border-avyra-border/60 text-xs">
+                    <div>
+                      <span class="font-bold text-avyra-navy">${m.type}:</span>
+                      <span class="text-slate-700">${m.productName} (${m.qty > 0 ? '+' + m.qty : m.qty} uds)</span>
+                      <div class="text-[11px] text-avyra-slate mt-0.5">Ref: ${m.reference} • ${m.date}</div>
+                    </div>
+                    <span class="font-mono text-[11px] px-2 py-0.5 rounded bg-white border border-avyra-border text-avyra-navy">
+                      Stock: ${m.newStock}
+                    </span>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    /**
+     * ============================================================================
+     * 2A. MÓDULO ERP – GESTIÓN DE PRODUCTOS E INVENTARIO (KARDEX)
+     * ============================================================================
+     */
+    function renderInventoryModule() {
+      const categories = ['Todas', ...new Set(db.products.map(p => p.category))];
+      const filtered = db.products.filter(p => {
+        const matchSearch = p.name.toLowerCase().includes(filters.inventorySearch.toLowerCase()) ||
+                            p.sku.toLowerCase().includes(filters.inventorySearch.toLowerCase()) ||
+                            p.variant.toLowerCase().includes(filters.inventorySearch.toLowerCase());
+        const matchCat = filters.inventoryCategory === 'Todas' || p.category === filters.inventoryCategory;
+        return matchSearch && matchCat;
+      });
+
+      const totalStock = db.products.reduce((s, p) => s + p.stock, 0);
+      const totalValuation = db.products.reduce((s, p) => s + (p.stock * p.cost), 0);
+
+      return `
+        <div class="space-y-6">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h2 class="text-xl font-extrabold text-avyra-navy">Productos, Variantes e Inventario</h2>
+              <p class="text-xs text-avyra-slate">Control de existencias por SKU, valoración de bodega y Kardex automático.</p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <button onclick="openStockAdjustmentModal()" class="px-4 py-2.5 rounded-xl border border-avyra-navy text-avyra-navy hover:bg-avyra-navy hover:text-white text-xs font-bold flex items-center gap-2 transition">
+                <i data-lucide="arrow-left-right" class="w-4 h-4"></i>
+                Entrada / Salida Manual
+              </button>
+              <button onclick="openProductFormModal()" class="px-4 py-2.5 rounded-xl bg-avyra-burgundy hover:bg-avyra-burgundyHover text-white text-xs font-bold flex items-center gap-2 shadow-sm transition">
+                <i data-lucide="plus" class="w-4 h-4"></i>
+                Nuevo Producto / SKU
+              </button>
+            </div>
+          </div>
+
+          <!-- Resumen rápido de bodega -->
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div class="bg-white p-4 rounded-2xl border border-avyra-border">
+              <div class="text-xs text-avyra-slate font-semibold">Total Unidades Físicas</div>
+              <div class="text-2xl font-extrabold text-avyra-navy mt-1">${totalStock} uds</div>
+            </div>
+            <div class="bg-white p-4 rounded-2xl border border-avyra-border">
+              <div class="text-xs text-avyra-slate font-semibold">Valoración Inventario (Costo)</div>
+              <div class="text-2xl font-extrabold text-avyra-navy mt-1">${fmtMoney(totalValuation)}</div>
+            </div>
+            <div class="bg-white p-4 rounded-2xl border border-avyra-border">
+              <div class="text-xs text-avyra-slate font-semibold">SKUs Activos</div>
+              <div class="text-2xl font-extrabold text-avyra-burgundy mt-1">${db.products.filter(p => p.active).length} / ${db.products.length}</div>
+            </div>
+          </div>
+
+          <!-- Filtros -->
+          <div class="bg-white p-4 rounded-2xl border border-avyra-border flex flex-col sm:flex-row gap-3">
+            <div class="flex-1 relative">
+              <i data-lucide="search" class="w-4 h-4 text-avyra-slate absolute left-3.5 top-3"></i>
+              <input type="text" placeholder="Buscar por SKU (ej. AVY-001), nombre o variante..."
+                value="${filters.inventorySearch}"
+                oninput="filters.inventorySearch = this.value; render();"
+                class="w-full pl-10 pr-4 py-2 rounded-xl border border-avyra-border text-sm focus:outline-none focus:ring-2 focus:ring-avyra-burgundy" />
+            </div>
+            <select onchange="filters.inventoryCategory = this.value; render();"
+              class="px-3.5 py-2 rounded-xl border border-avyra-border text-sm font-medium bg-avyra-beige/40">
+              ${categories.map(c => `<option value="${c}" ${filters.inventoryCategory === c ? 'selected' : ''}>Categoría: ${c}</option>`).join('')}
+            </select>
+          </div>
+
+          <!-- Tabla de Productos -->
+          <div class="bg-white rounded-2xl border border-avyra-border overflow-hidden shadow-2xs">
+            <div class="overflow-x-auto">
+              <table class="w-full text-left border-collapse">
+                <thead>
+                  <tr class="bg-avyra-navy text-white text-[11px] uppercase tracking-wider">
+                    <th class="py-3.5 px-4">SKU</th>
+                    <th class="py-3.5 px-4">Producto & Variante</th>
+                    <th class="py-3.5 px-4">Categoría</th>
+                    <th class="py-3.5 px-4 text-right">Costo</th>
+                    <th class="py-3.5 px-4 text-right">PVP (Sin IVA)</th>
+                    <th class="py-3.5 px-4 text-center">Stock</th>
+                    <th class="py-3.5 px-4 text-center">Estado</th>
+                    <th class="py-3.5 px-4 text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-avyra-border text-sm">
+                  ${filtered.map(p => {
+                    const isLow = p.stock <= p.minStock;
+                    return `
+                      <tr class="hover:bg-avyra-beige/40 transition">
+                        <td class="py-3.5 px-4 font-mono text-xs font-bold text-avyra-navy">${p.sku}</td>
+                        <td class="py-3.5 px-4">
+                          <div class="font-bold text-avyra-navy">${p.name}</div>
+                          <div class="text-xs text-avyra-slate">${p.variant}</div>
+                        </td>
+                        <td class="py-3.5 px-4">
+                          <span class="px-2.5 py-1 rounded-lg bg-avyra-beige text-xs font-semibold text-avyra-navy">${p.category}</span>
+                        </td>
+                        <td class="py-3.5 px-4 text-right text-xs text-avyra-slate">${fmtMoney(p.cost)}</td>
+                        <td class="py-3.5 px-4 text-right font-bold text-avyra-navy">${fmtMoney(p.price)}</td>
+                        <td class="py-3.5 px-4 text-center">
+                          <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-extrabold ${isLow ? 'bg-red-100 text-avyra-burgundy' : 'bg-emerald-100 text-emerald-800'}">
+                            ${p.stock} uds
+                          </span>
+                          <div class="text-[10px] text-avyra-slate mt-0.5">Mín: ${p.minStock}</div>
+                        </td>
+                        <td class="py-3.5 px-4 text-center">
+                          <span class="text-xs font-semibold ${p.active ? 'text-emerald-700' : 'text-slate-400'}">
+                            ${p.active ? '● Visible Web' : '○ Oculto'}
+                          </span>
+                        </td>
+                        <td class="py-3.5 px-4 text-right">
+                          <div class="inline-flex items-center gap-1">
+                            <button onclick="openProductFormModal('${p.id}')" title="Editar Producto" class="p-2 rounded-lg hover:bg-avyra-beige text-avyra-navy">
+                              <i data-lucide="edit-3" class="w-4 h-4"></i>
+                            </button>
+                            <button onclick="deleteProduct('${p.id}')" title="Eliminar" class="p-2 rounded-lg hover:bg-red-50 text-avyra-burgundy">
+                              <i data-lucide="trash-2" class="w-4 h-4"></i>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Historial de Movimientos (Kardex) -->
+          <div class="bg-white rounded-2xl border border-avyra-border p-6">
+            <h3 class="font-bold text-avyra-navy mb-3 flex items-center gap-2">
+              <i data-lucide="history" class="w-4 h-4 text-avyra-burgundy"></i>
+              Kardex de Movimientos de Inventario
+            </h3>
+            <div class="overflow-x-auto max-h-72">
+              <table class="w-full text-left text-xs">
+                <thead class="bg-avyra-beige text-avyra-navy font-bold uppercase">
+                  <tr>
+                    <th class="py-2.5 px-3">Fecha</th>
+                    <th class="py-2.5 px-3">SKU</th>
+                    <th class="py-2.5 px-3">Producto</th>
+                    <th class="py-2.5 px-3">Concepto</th>
+                    <th class="py-2.5 px-3 text-right">Variación</th>
+                    <th class="py-2.5 px-3 text-right">Saldo</th>
+                    <th class="py-2.5 px-3">Referencia</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-avyra-border">
+                  ${db.inventoryMovements.map(m => `
+                    <tr>
+                      <td class="py-2.5 px-3 text-avyra-slate">${m.date}</td>
+                      <td class="py-2.5 px-3 font-mono font-bold">${m.sku}</td>
+                      <td class="py-2.5 px-3 font-medium">${m.productName}</td>
+                      <td class="py-2.5 px-3">${m.type}</td>
+                      <td class="py-2.5 px-3 text-right font-bold ${m.qty >= 0 ? 'text-emerald-700' : 'text-avyra-burgundy'}">
+                        ${m.qty > 0 ? '+' + m.qty : m.qty}
+                      </td>
+                      <td class="py-2.5 px-3 text-right font-mono font-bold">${m.newStock}</td>
+                      <td class="py-2.5 px-3 text-avyra-slate">${m.reference}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function openProductFormModal(productId = null) {
+      const prod = productId ? db.products.find(p => p.id === productId) : null;
+      const nextSku = 'AVY-' + String(db.products.length + 1).padStart(3, '0');
+
+      openModal(`
+        <div class="p-6">
+          <div class="flex items-center justify-between border-b border-avyra-border pb-4 mb-5">
+            <h3 class="text-lg font-extrabold text-avyra-navy">${prod ? 'Editar Producto' : 'Registrar Nuevo Producto AVYRA'}</h3>
+            <button onclick="closeModal()" class="text-avyra-slate hover:text-avyra-navy">&times;</button>
+          </div>
+          <form onsubmit="saveProductForm(event, '${productId || ''}')" class="space-y-4">
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label class="block text-xs font-bold text-avyra-navy mb-1">Código SKU *</label>
+                <input name="sku" required value="${prod ? prod.sku : nextSku}" class="w-full px-3 py-2 rounded-xl border border-avyra-border font-mono text-sm" />
+              </div>
+              <div class="sm:col-span-2">
+                <label class="block text-xs font-bold text-avyra-navy mb-1">Nombre del Artículo *</label>
+                <input name="name" required value="${prod ? prod.name : ''}" placeholder="Ej. Set Cubos de Compresión AVYRA" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-bold text-avyra-navy mb-1">Categoría *</label>
+                <select name="category" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm">
+                  ${['Equipaje', 'Mochilas', 'Confort', 'Organización', 'Electrónica', 'Accesorios'].map(c => `
+                    <option value="${c}" ${prod && prod.category === c ? 'selected' : ''}>${c}</option>
+                  `).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-bold text-avyra-navy mb-1">Color / Modelo / Variante *</label>
+                <input name="variant" required value="${prod ? prod.variant : ''}" placeholder="Ej. Borgoña / Set x4" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-xs font-bold text-avyra-navy mb-1">Descripción Comercial</label>
+              <textarea name="description" rows="2" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm">${prod ? prod.description : ''}</textarea>
+            </div>
+
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div>
+                <label class="block text-xs font-bold text-avyra-navy mb-1">Costo Unit. ($)</label>
+                <input name="cost" type="number" step="0.01" min="0" required value="${prod ? prod.cost : '15.00'}" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+              </div>
+              <div>
+                <label class="block text-xs font-bold text-avyra-navy mb-1">Precio Venta ($)</label>
+                <input name="price" type="number" step="0.01" min="0" required value="${prod ? prod.price : '34.00'}" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+              </div>
+              <div>
+                <label class="block text-xs font-bold text-avyra-navy mb-1">${prod ? 'Stock Actual' : 'Stock Inicial'}</label>
+                <input name="stock" type="number" min="0" required value="${prod ? prod.stock : '20'}" ${prod ? 'readonly class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm bg-slate-100"' : 'class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm"'} />
+              </div>
+              <div>
+                <label class="block text-xs font-bold text-avyra-navy mb-1">Stock Mínimo</label>
+                <input name="minStock" type="number" min="1" required value="${prod ? prod.minStock : '8'}" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2 pt-1">
+              <input id="prod-active" name="active" type="checkbox" ${!prod || prod.active ? 'checked' : ''} class="rounded text-avyra-burgundy" />
+              <label for="prod-active" class="text-xs font-semibold text-avyra-navy">Publicar inmediatamente en Tienda Virtual AVYRA</label>
+            </div>
+
+            <div class="flex justify-end gap-3 pt-4 border-t border-avyra-border">
+              <button type="button" onclick="closeModal()" class="px-4 py-2 rounded-xl border border-avyra-border text-xs font-bold">Cancelar</button>
+              <button type="submit" class="px-5 py-2 rounded-xl bg-avyra-burgundy text-white text-xs font-bold hover:bg-avyra-burgundyHover">Guardar Producto</button>
+            </div>
+          </form>
+        </div>
+      `);
+    }
+
+    function saveProductForm(e, productId) {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const sku = fd.get('sku').trim().toUpperCase();
+      const data = {
+        sku,
+        name: fd.get('name').trim(),
+        category: fd.get('category'),
+        variant: fd.get('variant').trim(),
+        description: fd.get('description').trim(),
+        cost: parseFloat(fd.get('cost')),
+        price: parseFloat(fd.get('price')),
+        minStock: parseInt(fd.get('minStock'), 10),
+        active: fd.get('active') === 'on'
+      };
+
+      if (productId) {
+        const prod = db.products.find(p => p.id === productId);
+        Object.assign(prod, data);
+        showToast(`Producto ${sku} actualizado y sincronizado con Tienda Virtual.`, 'success');
+      } else {
+        if (db.products.some(p => p.sku === sku)) {
+          showToast(`El SKU ${sku} ya existe en el catálogo.`, 'error');
+          return;
+        }
+        const initialStock = parseInt(fd.get('stock'), 10);
+        const newProd = {
+          id: 'PRD-' + String(db.products.length + 1).padStart(3, '0'),
+          ...data,
+          stock: initialStock,
+          icon: 'package'
+        };
+        db.products.push(newProd);
+        db.inventoryMovements.unshift({
+          id: 'MOV-' + (1001 + db.inventoryMovements.length),
+          date: todayStr(),
+          sku: newProd.sku,
+          productName: newProd.name,
+          type: 'Alta de Producto',
+          qty: initialStock,
+          prevStock: 0,
+          newStock: initialStock,
+          reference: 'ALTA-ERP',
+          user: currentUser.fullName
+        });
+        showToast(`Nuevo producto ${newProd.name} (${sku}) registrado.`, 'success');
+      }
+
+      saveDatabase();
+      closeModal();
+      render();
+    }
+
+    function deleteProduct(productId) {
+      const prod = db.products.find(p => p.id === productId);
+      if (!prod) return;
+      db.products = db.products.filter(p => p.id !== productId);
+      saveDatabase();
+      showToast(`Producto ${prod.sku} eliminado del catálogo.`, 'warning');
+      render();
+    }
+
+    function openStockAdjustmentModal() {
+      openModal(`
+        <div class="p-6">
+          <h3 class="text-lg font-extrabold text-avyra-navy mb-4">Movimiento Manual de Inventario (Entrada / Salida)</h3>
+          <form onsubmit="processStockAdjustment(event)" class="space-y-4">
+            <div>
+              <label class="block text-xs font-bold text-avyra-navy mb-1">Producto</label>
+              <select name="productId" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm">
+                ${db.products.map(p => `<option value="${p.id}">${p.sku} — ${p.name} (Stock: ${p.stock})</option>`).join('')}
+              </select>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-bold text-avyra-navy mb-1">Tipo de Movimiento</label>
+                <select name="moveType" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm">
+                  <option value="in">Entrada a Bodega (+)</option>
+                  <option value="out">Salida / Ajuste / Muestra (-)</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-bold text-avyra-navy mb-1">Cantidad (Unidades)</label>
+                <input name="qty" type="number" min="1" required value="5" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+              </div>
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-avyra-navy mb-1">Motivo / Documento de Respaldo</label>
+              <input name="reference" required placeholder="Ej. Ajuste conteo físico mensual / Exhibición showroom" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+            </div>
+            <div class="flex justify-end gap-3 pt-3">
+              <button type="button" onclick="closeModal()" class="px-4 py-2 rounded-xl border border-avyra-border text-xs font-bold">Cancelar</button>
+              <button type="submit" class="px-5 py-2 rounded-xl bg-avyra-navy text-white text-xs font-bold">Registrar en Kardex</button>
+            </div>
+          </form>
+        </div>
+      `, 'max-w-lg');
+    }
+
+    function processStockAdjustment(e) {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const prod = db.products.find(p => p.id === fd.get('productId'));
+      const moveType = fd.get('moveType');
+      const qty = parseInt(fd.get('qty'), 10);
+      const ref = fd.get('reference').trim();
+
+      if (moveType === 'out' && prod.stock < qty) {
+        showToast('No puedes descontar más unidades del stock disponible.', 'error');
+        return;
+      }
+
+      const prevStock = prod.stock;
+      const delta = moveType === 'in' ? qty : -qty;
+      prod.stock += delta;
+
+      db.inventoryMovements.unshift({
+        id: 'MOV-' + (1001 + db.inventoryMovements.length),
+        date: todayStr(),
+        sku: prod.sku,
+        productName: prod.name,
+        type: moveType === 'in' ? 'Entrada Manual' : 'Salida Manual',
+        qty: delta,
+        prevStock,
+        newStock: prod.stock,
+        reference: ref,
+        user: currentUser.fullName
+      });
+
+      saveDatabase();
+      closeModal();
+      showToast(`Kardex actualizado: ${prod.sku} ahora tiene ${prod.stock} unidades.`, 'success');
+      render();
+    }
+
+    /**
+     * ============================================================================
+     * 2B. MÓDULO ERP – COMPRAS Y PROVEEDORES
+     * ============================================================================
+     */
+    function renderPurchasesModule() {
+      return `
+        <div class="space-y-6">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h2 class="text-xl font-extrabold text-avyra-navy">Compras y Proveedores</h2>
+              <p class="text-xs text-avyra-slate">Al marcar una Orden de Compra como "Recibida", el inventario y las finanzas se actualizan automáticamente.</p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <button onclick="openSupplierModal()" class="px-4 py-2.5 rounded-xl border border-avyra-navy text-avyra-navy hover:bg-avyra-navy hover:text-white text-xs font-bold flex items-center gap-2 transition">
+                <i data-lucide="building-2" class="w-4 h-4"></i>
+                Registrar Proveedor
+              </button>
+              <button onclick="openPurchaseOrderModal()" class="px-4 py-2.5 rounded-xl bg-avyra-burgundy hover:bg-avyra-burgundyHover text-white text-xs font-bold flex items-center gap-2 shadow-sm">
+                <i data-lucide="file-plus" class="w-4 h-4"></i>
+                Nueva Orden de Compra
+              </button>
+            </div>
+          </div>
+
+          <!-- Órdenes de Compra -->
+          <div class="bg-white rounded-2xl border border-avyra-border overflow-hidden">
+            <div class="p-4 border-b border-avyra-border bg-avyra-beige/40 font-bold text-sm text-avyra-navy">
+              Órdenes de Compra (OC)
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-sm">
+                <thead class="bg-avyra-navy text-white text-[11px] uppercase">
+                  <tr>
+                    <th class="py-3 px-4">N° Orden</th>
+                    <th class="py-3 px-4">Fecha</th>
+                    <th class="py-3 px-4">Proveedor</th>
+                    <th class="py-3 px-4">Detalle Artículos</th>
+                    <th class="py-3 px-4 text-right">Costo Total</th>
+                    <th class="py-3 px-4 text-center">Estado</th>
+                    <th class="py-3 px-4 text-right">Acción</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-avyra-border">
+                  ${db.purchaseOrders.map(oc => `
+                    <tr class="hover:bg-avyra-beige/30">
+                      <td class="py-3.5 px-4 font-mono font-bold text-xs">${oc.id}</td>
+                      <td class="py-3.5 px-4 text-xs text-avyra-slate">${oc.date}</td>
+                      <td class="py-3.5 px-4 font-semibold text-avyra-navy">${oc.supplierName}</td>
+                      <td class="py-3.5 px-4 text-xs">
+                        ${oc.items.map(i => `<div>• ${i.qty}x ${i.name} (${fmtMoney(i.unitCost)} c/u)</div>`).join('')}
+                      </td>
+                      <td class="py-3.5 px-4 text-right font-extrabold text-avyra-navy">${fmtMoney(oc.total)}</td>
+                      <td class="py-3.5 px-4 text-center">
+                        <span class="px-2.5 py-1 rounded-full text-xs font-bold ${oc.status === 'Recibida' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}">
+                          ${oc.status}
+                        </span>
+                        ${oc.receivedDate ? `<div class="text-[10px] text-avyra-slate mt-0.5">Rec: ${oc.receivedDate}</div>` : ''}
+                      </td>
+                      <td class="py-3.5 px-4 text-right">
+                        ${oc.status !== 'Recibida' ? `
+                          <button onclick="receivePurchaseOrder('${oc.id}')" class="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold">
+                            Marcar Recibida
+                          </button>
+                        ` : `<span class="text-xs text-emerald-700 font-semibold">✓ Ingresada</span>`}
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Directorio de Proveedores -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            ${db.suppliers.map(s => `
+              <div class="bg-white p-5 rounded-2xl border border-avyra-border flex items-start justify-between">
+                <div>
+                  <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-avyra-beige text-avyra-navy">${s.category}</span>
+                  <h4 class="font-bold text-avyra-navy mt-2">${s.name}</h4>
+                  <p class="text-xs text-avyra-slate mt-0.5">RUC: ${s.ruc} • ${s.city}</p>
+                  <div class="mt-3 text-xs space-y-1 text-slate-700">
+                    <div><strong>Contacto:</strong> ${s.contact}</div>
+                    <div><strong>Email:</strong> ${s.email} | <strong>Tel:</strong> ${s.phone}</div>
+                  </div>
+                </div>
+                <span class="font-mono text-xs text-avyra-slate">${s.id}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    function openSupplierModal() {
+      openModal(`
+        <div class="p-6">
+          <h3 class="text-lg font-extrabold text-avyra-navy mb-4">Registrar Nuevo Proveedor</h3>
+          <form onsubmit="saveSupplier(event)" class="space-y-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-bold mb-1">Razón Social *</label>
+                <input name="name" required placeholder="Ej. Pacific Travel Supply S.A." class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+              </div>
+              <div>
+                <label class="block text-xs font-bold mb-1">RUC / Tax ID *</label>
+                <input name="ruc" required placeholder="1790000000001" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+              </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-bold mb-1">Persona de Contacto *</label>
+                <input name="contact" required class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+              </div>
+              <div>
+                <label class="block text-xs font-bold mb-1">Línea de Productos</label>
+                <input name="category" value="Accesorios de Viaje" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+              </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label class="block text-xs font-bold mb-1">Correo *</label>
+                <input name="email" type="email" required class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+              </div>
+              <div>
+                <label class="block text-xs font-bold mb-1">Teléfono *</label>
+                <input name="phone" required class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+              </div>
+              <div>
+                <label class="block text-xs font-bold mb-1">Ciudad / Origen</label>
+                <input name="city" value="Quito" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+              </div>
+            </div>
+            <div class="flex justify-end gap-3 pt-3">
+              <button type="button" onclick="closeModal()" class="px-4 py-2 rounded-xl border border-avyra-border text-xs font-bold">Cancelar</button>
+              <button type="submit" class="px-5 py-2 rounded-xl bg-avyra-burgundy text-white text-xs font-bold">Guardar Proveedor</button>
+            </div>
+          </form>
+        </div>
+      `);
+    }
+
+    function saveSupplier(e) {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      db.suppliers.push({
+        id: 'PRV-' + String(db.suppliers.length + 1).padStart(2, '0'),
+        name: fd.get('name').trim(),
+        ruc: fd.get('ruc').trim(),
+        contact: fd.get('contact').trim(),
+        category: fd.get('category').trim(),
+        email: fd.get('email').trim(),
+        phone: fd.get('phone').trim(),
+        city: fd.get('city').trim()
+      });
+      saveDatabase();
+      closeModal();
+      showToast('Proveedor registrado correctamente.', 'success');
+      render();
+    }
+
+    function openPurchaseOrderModal() {
+      openModal(`
+        <div class="p-6">
+          <h3 class="text-lg font-extrabold text-avyra-navy mb-4">Crear Orden de Compra a Proveedor</h3>
+          <form onsubmit="createPurchaseOrder(event)" class="space-y-4">
+            <div>
+              <label class="block text-xs font-bold mb-1">Proveedor *</label>
+              <select name="supplierId" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm">
+                ${db.suppliers.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}
+              </select>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div class="sm:col-span-2">
+                <label class="block text-xs font-bold mb-1">Producto a Reabastecer *</label>
+                <select name="productId" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm">
+                  ${db.products.map(p => `<option value="${p.id}">${p.sku} — ${p.name} (Costo ref: ${fmtMoney(p.cost)})</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-bold mb-1">Cantidad *</label>
+                <input name="qty" type="number" min="1" value="10" required class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-bold mb-1">Costo Unitario Pactado ($)</label>
+                <input name="unitCost" type="number" step="0.01" min="0.1" value="25.00" required class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+              </div>
+              <div>
+                <label class="block text-xs font-bold mb-1">Estado Inicial</label>
+                <select name="status" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm">
+                  <option value="Pendiente">Pendiente de Recepción</option>
+                  <option value="Recibida">Recibida Inmediatamente (+Stock)</option>
+                </select>
+              </div>
+            </div>
+            <div class="flex justify-end gap-3 pt-3">
+              <button type="button" onclick="closeModal()" class="px-4 py-2 rounded-xl border border-avyra-border text-xs font-bold">Cancelar</button>
+              <button type="submit" class="px-5 py-2 rounded-xl bg-avyra-burgundy text-white text-xs font-bold">Emitir Orden de Compra</button>
+            </div>
+          </form>
+        </div>
+      `);
+    }
+
+    function createPurchaseOrder(e) {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const supplier = db.suppliers.find(s => s.id === fd.get('supplierId'));
+      const prod = db.products.find(p => p.id === fd.get('productId'));
+      const qty = parseInt(fd.get('qty'), 10);
+      const unitCost = parseFloat(fd.get('unitCost'));
+      const status = fd.get('status');
+
+      const ocId = 'OC-2026-' + String(db.purchaseOrders.length + 1).padStart(3, '0');
+      const total = Number((qty * unitCost).toFixed(2));
+
+      db.purchaseOrders.unshift({
+        id: ocId,
+        date: todayStr(),
+        supplierId: supplier.id,
+        supplierName: supplier.name,
+        items: [{ productId: prod.id, sku: prod.sku, name: prod.name, qty, unitCost }],
+        total,
+        status: 'Pendiente',
+        receivedDate: null
+      });
+
+      if (status === 'Recibida') {
+        receivePurchaseOrder(ocId, false);
+      } else {
+        saveDatabase();
+        showToast(`Orden ${ocId} emitida en estado Pendiente.`, 'info');
+      }
+      closeModal();
+      render();
+    }
+
+    function receivePurchaseOrder(ocId, shouldRender = true) {
+      const oc = db.purchaseOrders.find(o => o.id === ocId);
+      if (!oc || oc.status === 'Recibida') return;
+      const nowDate = todayStr();
+
+      oc.status = 'Recibida';
+      oc.receivedDate = nowDate;
+
+      // Incrementar stock automáticamente y registrar Kardex
+      oc.items.forEach(item => {
+        const prod = db.products.find(p => p.id === item.productId);
+        if (prod) {
+          const prevStock = prod.stock;
+          prod.stock += item.qty;
+          prod.cost = item.unitCost;
+          db.inventoryMovements.unshift({
+            id: 'MOV-' + (1001 + db.inventoryMovements.length),
+            date: nowDate,
+            sku: prod.sku,
+            productName: prod.name,
+            type: 'Entrada por Compra',
+            qty: item.qty,
+            prevStock,
+            newStock: prod.stock,
+            reference: oc.id,
+            user: currentUser.fullName
+          });
+        }
+      });
+
+      // Registrar egreso en Finanzas
+      db.financeEntries.unshift({
+        id: 'FIN-' + String(db.financeEntries.length + 1).padStart(3, '0'),
+        date: nowDate,
+        type: 'Egreso',
+        category: 'Compras de Mercadería',
+        description: `Pago recepción ${oc.id} - ${oc.supplierName}`,
+        amount: oc.total,
+        reference: oc.id
+      });
+
+      saveDatabase();
+      showToast(`Mercancía recibida (${oc.id}): inventario y finanzas actualizados.`, 'success');
+      if (shouldRender) render();
+    }
+
+    /**
+     * ============================================================================
+     * 2C. MÓDULO ERP – GESTIÓN DE VENTAS Y PEDIDOS
+     * ============================================================================
+     */
+    function renderSalesModule() {
+      const statuses = ['Todos', 'Pendiente', 'Confirmado', 'En Ruta', 'Entregado', 'Cancelado', 'Devuelto'];
+      const filtered = db.orders.filter(o => {
+        const matchStatus = filters.ordersStatus === 'Todos' || o.status === filters.ordersStatus;
+        const matchSearch = o.id.toLowerCase().includes(filters.ordersSearch.toLowerCase()) ||
+                            o.customerName.toLowerCase().includes(filters.ordersSearch.toLowerCase());
+        return matchStatus && matchSearch;
+      });
+
+      return `
+        <div class="space-y-6">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h2 class="text-xl font-extrabold text-avyra-navy">Ventas, Pedidos y Facturación</h2>
+              <p class="text-xs text-avyra-slate">Gestión unificada de pedidos web y ventas directas con cálculo de IVA (15%) y comprobantes.</p>
+            </div>
+            <button onclick="openNewOrderModal()" class="px-4 py-2.5 rounded-xl bg-avyra-burgundy hover:bg-avyra-burgundyHover text-white text-xs font-bold flex items-center gap-2 shadow-sm">
+              <i data-lucide="plus-circle" class="w-4 h-4"></i>
+              Registrar Venta Manual
+            </button>
+          </div>
+
+          <!-- Filtros -->
+          <div class="bg-white p-4 rounded-2xl border border-avyra-border flex flex-col sm:flex-row gap-3">
+            <input type="text" placeholder="Buscar por N° Pedido o Cliente..." value="${filters.ordersSearch}"
+              oninput="filters.ordersSearch = this.value; render();"
+              class="flex-1 px-3.5 py-2 rounded-xl border border-avyra-border text-sm" />
+            <select onchange="filters.ordersStatus = this.value; render();"
+              class="px-3.5 py-2 rounded-xl border border-avyra-border text-sm font-medium bg-avyra-beige/40">
+              ${statuses.map(st => `<option value="${st}" ${filters.ordersStatus === st ? 'selected' : ''}>Estado: ${st}</option>`).join('')}
+            </select>
+          </div>
+
+          <!-- Tabla de Pedidos -->
+          <div class="bg-white rounded-2xl border border-avyra-border overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-sm">
+                <thead class="bg-avyra-navy text-white text-[11px] uppercase">
+                  <tr>
+                    <th class="py-3.5 px-4">Pedido / Canal</th>
+                    <th class="py-3.5 px-4">Cliente & Destino</th>
+                    <th class="py-3.5 px-4">Productos</th>
+                    <th class="py-3.5 px-4 text-right">Total (Inc. IVA)</th>
+                    <th class="py-3.5 px-4 text-center">Estado</th>
+                    <th class="py-3.5 px-4 text-right">Comprobante</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-avyra-border">
+                  ${filtered.map(o => `
+                    <tr class="hover:bg-avyra-beige/30">
+                      <td class="py-3.5 px-4">
+                        <div class="font-mono font-bold text-xs text-avyra-navy">${o.id}</div>
+                        <div class="text-[11px] text-avyra-slate">${o.date} • ${o.channel}</div>
+                      </td>
+                      <td class="py-3.5 px-4">
+                        <div class="font-bold text-avyra-navy">${o.customerName}</div>
+                        <div class="text-xs text-avyra-slate">${o.city}, ${o.province}</div>
+                      </td>
+                      <td class="py-3.5 px-4 text-xs">
+                        ${o.items.map(i => `<div>${i.qty}x ${i.name}</div>`).join('')}
+                      </td>
+                      <td class="py-3.5 px-4 text-right">
+                        <div class="font-extrabold text-avyra-navy">${fmtMoney(o.total)}</div>
+                        <div class="text-[10px] text-avyra-slate">${o.paymentMethod.split(' ')[0]}</div>
+                      </td>
+                      <td class="py-3.5 px-4 text-center">
+                        <select onchange="updateOrderStatus('${o.id}', this.value)"
+                          class="px-2.5 py-1 rounded-lg border border-avyra-border text-xs font-bold ${getOrderStatusBadgeClass(o.status)}">
+                          ${['Pendiente', 'Confirmado', 'En Ruta', 'Entregado', 'Cancelado', 'Devuelto'].map(st => `
+                            <option value="${st}" ${o.status === st ? 'selected' : ''}>${st}</option>
+                          `).join('')}
+                        </select>
+                      </td>
+                      <td class="py-3.5 px-4 text-right">
+                        <button onclick="openInvoiceModal('${o.id}')" class="px-3 py-1.5 rounded-lg border border-avyra-border hover:bg-avyra-beige text-xs font-bold text-avyra-navy inline-flex items-center gap-1.5">
+                          <i data-lucide="printer" class="w-3.5 h-3.5"></i>
+                          Factura
+                        </button>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function getOrderStatusBadgeClass(status) {
+      switch (status) {
+        case 'Entregado': return 'bg-emerald-100 text-emerald-900';
+        case 'Confirmado':
+        case 'En Ruta': return 'bg-sky-100 text-sky-900';
+        case 'Pendiente': return 'bg-amber-100 text-amber-900';
+        default: return 'bg-red-100 text-avyra-burgundy';
+      }
+    }
+
+    function openNewOrderModal() {
+      openModal(`
+        <div class="p-6">
+          <h3 class="text-lg font-extrabold text-avyra-navy mb-4">Registrar Venta Directa en ERP</h3>
+          <form onsubmit="submitManualOrder(event)" class="space-y-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-bold mb-1">Cliente Existente (CRM) *</label>
+                <select name="customerId" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm">
+                  ${db.customers.map(c => `<option value="${c.id}">${c.firstName} ${c.lastName} (${c.city})</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-bold mb-1">Método de Pago *</label>
+                <select name="paymentMethod" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm">
+                  <option>Transferencia Bancaria (Banco Pichincha)</option>
+                  <option>Tarjeta de Crédito / Débito</option>
+                  <option>Efectivo / Contraentrega</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div class="sm:col-span-2">
+                <label class="block text-xs font-bold mb-1">Producto *</label>
+                <select name="productId" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm">
+                  ${db.products.filter(p => p.stock > 0).map(p => `
+                    <option value="${p.id}">${p.sku} — ${p.name} (${fmtMoney(p.price)} | Disp: ${p.stock})</option>
+                  `).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-bold mb-1">Cantidad *</label>
+                <input name="qty" type="number" min="1" value="1" required class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-xs font-bold mb-1">Código Promocional (Opcional - Ej. BEYOND15)</label>
+              <input name="discountCode" placeholder="Código de campaña" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm uppercase" />
+            </div>
+
+            <div class="flex justify-end gap-3 pt-4 border-t border-avyra-border">
+              <button type="button" onclick="closeModal()" class="px-4 py-2 rounded-xl border border-avyra-border text-xs font-bold">Cancelar</button>
+              <button type="submit" class="px-5 py-2 rounded-xl bg-avyra-burgundy text-white text-xs font-bold">Confirmar Venta y Descontar Stock</button>
+            </div>
+          </form>
+        </div>
+      `);
+    }
+
+    function submitManualOrder(e) {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const cust = db.customers.find(c => c.id === fd.get('customerId'));
+      const prod = db.products.find(p => p.id === fd.get('productId'));
+      const qty = parseInt(fd.get('qty'), 10);
+
+      try {
+        const res = processIntegratedOrder({
+          channel: 'Venta Directa ERP',
+          customerData: cust,
+          items: [{ productId: prod.id, sku: prod.sku, name: prod.name, qty, price: prod.price }],
+          paymentMethod: fd.get('paymentMethod'),
+          discountCode: fd.get('discountCode')
+        });
+        closeModal();
+        showToast(`Venta ${res.order.id} registrada por ${fmtMoney(res.order.total)}. Stock actualizado.`, 'success');
+        render();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    }
+
+    function openInvoiceModal(orderId) {
+      const o = db.orders.find(ord => ord.id === orderId);
+      if (!o) return;
+      openModal(`
+        <div id="printable-invoice" class="p-8 bg-white">
+          <div class="flex justify-between items-start border-b-2 border-avyra-navy pb-6">
+            <div>
+              <h2 class="text-2xl font-extrabold text-avyra-navy tracking-tight">AVYRA ECUADOR</h2>
+              <p class="text-[10px] tracking-[0.25em] text-avyra-burgundy font-bold">BEYOND EVERY JOURNEY</p>
+              <p class="text-xs text-avyra-slate mt-2">RUC: 1793204859001 • Quito, Ecuador</p>
+              <p class="text-xs text-avyra-slate">Comprobante Electrónico de Venta</p>
+            </div>
+            <div class="text-right">
+              <span class="px-3 py-1 rounded-full bg-avyra-beige text-avyra-navy font-mono font-bold text-xs">${o.id}</span>
+              <p class="text-xs text-avyra-slate mt-2">Fecha: <strong>${o.date}</strong></p>
+              <p class="text-xs text-avyra-slate">Estado: <strong>${o.status}</strong></p>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4 my-6 text-xs bg-avyra-beige/50 p-4 rounded-xl">
+            <div>
+              <div class="font-bold text-avyra-navy uppercase mb-1">Datos del Cliente</div>
+              <div><strong>Nombre:</strong> ${o.customerName}</div>
+              <div><strong>Email:</strong> ${o.customerEmail}</div>
+              <div><strong>Teléfono:</strong> ${o.customerPhone}</div>
+            </div>
+            <div>
+              <div class="font-bold text-avyra-navy uppercase mb-1">Entrega Nacional</div>
+              <div><strong>Dirección:</strong> ${o.shippingAddress}</div>
+              <div><strong>Destino:</strong> ${o.city}, ${o.province}</div>
+              <div><strong>Pago:</strong> ${o.paymentMethod}</div>
+            </div>
+          </div>
+
+          <table class="w-full text-left text-xs border-collapse mb-6">
+            <thead>
+              <tr class="border-b border-avyra-navy text-avyra-navy uppercase">
+                <th class="py-2">SKU</th>
+                <th class="py-2">Descripción</th>
+                <th class="py-2 text-center">Cant.</th>
+                <th class="py-2 text-right">P. Unit</th>
+                <th class="py-2 text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-avyra-border">
+              ${o.items.map(i => `
+                <tr>
+                  <td class="py-2.5 font-mono">${i.sku}</td>
+                  <td class="py-2.5 font-medium">${i.name}</td>
+                  <td class="py-2.5 text-center">${i.qty}</td>
+                  <td class="py-2.5 text-right">${fmtMoney(i.price)}</td>
+                  <td class="py-2.5 text-right font-bold">${fmtMoney(i.price * i.qty)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+
+          <div class="flex justify-end">
+            <div class="w-64 space-y-1.5 text-xs">
+              <div class="flex justify-between"><span>Subtotal:</span><span>${fmtMoney(o.subtotal)}</span></div>
+              <div class="flex justify-between"><span>IVA (15% Ecuador):</span><span>${fmtMoney(o.iva)}</span></div>
+              <div class="flex justify-between text-base font-extrabold text-avyra-navy border-t border-avyra-navy pt-2">
+                <span>TOTAL USD:</span><span>${fmtMoney(o.total)}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-8 pt-4 border-t border-avyra-border flex justify-end gap-3 no-print">
+            <button onclick="closeModal()" class="px-4 py-2 rounded-xl border border-avyra-border text-xs font-bold">Cerrar</button>
+            <button onclick="window.print()" class="px-5 py-2 rounded-xl bg-avyra-navy text-white text-xs font-bold flex items-center gap-2">
+              <i data-lucide="printer" class="w-4 h-4"></i> Imprimir / Guardar PDF
+            </button>
+          </div>
+        </div>
+      `);
+    }
+
+    /**
+     * ============================================================================
+     * 2D. MÓDULO ERP – GESTIÓN FINANCIERA
+     * ============================================================================
+     */
+    function renderFinanceModule() {
+      const income = db.financeEntries.filter(f => f.type === 'Ingreso').reduce((s, f) => s + f.amount, 0);
+      const expense = db.financeEntries.filter(f => f.type === 'Egreso').reduce((s, f) => s + f.amount, 0);
+      const profit = income - expense;
+      const margin = income > 0 ? ((profit / income) * 100).toFixed(1) : '0.0';
+
+      return `
+        <div class="space-y-6">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h2 class="text-xl font-extrabold text-avyra-navy">Gestión Financiera y Contable</h2>
+              <p class="text-xs text-avyra-slate">Flujo de ingresos por ventas, costos de compras y registro de gastos operativos.</p>
+            </div>
+            <button onclick="openFinanceEntryModal()" class="px-4 py-2.5 rounded-xl bg-avyra-burgundy hover:bg-avyra-burgundyHover text-white text-xs font-bold flex items-center gap-2 shadow-sm">
+              <i data-lucide="plus" class="w-4 h-4"></i>
+              Registrar Movimiento / Gasto
+            </button>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+            <div class="bg-white p-5 rounded-2xl border border-avyra-border">
+              <div class="text-xs text-avyra-slate font-semibold">Ingresos Totales</div>
+              <div class="text-2xl font-extrabold text-emerald-700 mt-1">${fmtMoney(income)}</div>
+            </div>
+            <div class="bg-white p-5 rounded-2xl border border-avyra-border">
+              <div class="text-xs text-avyra-slate font-semibold">Egresos y Costos</div>
+              <div class="text-2xl font-extrabold text-avyra-burgundy mt-1">${fmtMoney(expense)}</div>
+            </div>
+            <div class="bg-white p-5 rounded-2xl border border-avyra-border">
+              <div class="text-xs text-avyra-slate font-semibold">Resultado Neto</div>
+              <div class="text-2xl font-extrabold text-avyra-navy mt-1">${fmtMoney(profit)}</div>
+            </div>
+            <div class="bg-white p-5 rounded-2xl border border-avyra-border">
+              <div class="text-xs text-avyra-slate font-semibold">Margen Operativo</div>
+              <div class="text-2xl font-extrabold text-avyra-navy mt-1">${margin}%</div>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-2xl border border-avyra-border overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-sm">
+                <thead class="bg-avyra-navy text-white text-[11px] uppercase">
+                  <tr>
+                    <th class="py-3 px-4">Fecha</th>
+                    <th class="py-3 px-4">Tipo</th>
+                    <th class="py-3 px-4">Categoría</th>
+                    <th class="py-3 px-4">Descripción</th>
+                    <th class="py-3 px-4">Referencia</th>
+                    <th class="py-3 px-4 text-right">Monto USD</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-avyra-border">
+                  ${db.financeEntries.map(f => `
+                    <tr class="hover:bg-avyra-beige/30">
+                      <td class="py-3 px-4 text-xs text-avyra-slate">${f.date}</td>
+                      <td class="py-3 px-4">
+                        <span class="px-2.5 py-0.5 rounded-full text-xs font-bold ${f.type === 'Ingreso' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-avyra-burgundy'}">
+                          ${f.type}
+                        </span>
+                      </td>
+                      <td class="py-3 px-4 text-xs font-semibold text-avyra-navy">${f.category}</td>
+                      <td class="py-3 px-4 text-xs">${f.description}</td>
+                      <td class="py-3 px-4 font-mono text-xs text-avyra-slate">${f.reference}</td>
+                      <td class="py-3 px-4 text-right font-extrabold ${f.type === 'Ingreso' ? 'text-emerald-700' : 'text-avyra-burgundy'}">
+                        ${f.type === 'Ingreso' ? '+' : '-'}${fmtMoney(f.amount)}
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function openFinanceEntryModal() {
+      openModal(`
+        <div class="p-6">
+          <h3 class="text-lg font-extrabold text-avyra-navy mb-4">Registrar Movimiento Financiero</h3>
+          <form onsubmit="saveFinanceEntry(event)" class="space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-bold mb-1">Tipo *</label>
+                <select name="type" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm">
+                  <option value="Egreso">Egreso / Gasto Operativo</option>
+                  <option value="Ingreso">Ingreso Extraordinario</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-bold mb-1">Categoría *</label>
+                <select name="category" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm">
+                  <option>Marketing Digital</option>
+                  <option>Logística y Empaques</option>
+                  <option>Plataforma Web y Hosting</option>
+                  <option>Gastos Administrativos</option>
+                  <option>Otros Ingresos</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label class="block text-xs font-bold mb-1">Descripción *</label>
+              <input name="description" required placeholder="Ej. Cajas de cartón personalizadas AVYRA" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-bold mb-1">Monto ($) *</label>
+                <input name="amount" type="number" step="0.01" min="0.1" required class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+              </div>
+              <div>
+                <label class="block text-xs font-bold mb-1">N° Comprobante / Ref</label>
+                <input name="reference" value="OP-2026" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+              </div>
+            </div>
+            <div class="flex justify-end gap-3 pt-3">
+              <button type="button" onclick="closeModal()" class="px-4 py-2 rounded-xl border border-avyra-border text-xs font-bold">Cancelar</button>
+              <button type="submit" class="px-5 py-2 rounded-xl bg-avyra-burgundy text-white text-xs font-bold">Guardar Registro</button>
+            </div>
+          </form>
+        </div>
+      `, 'max-w-lg');
+    }
+
+    function saveFinanceEntry(e) {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      db.financeEntries.unshift({
+        id: 'FIN-' + String(db.financeEntries.length + 1).padStart(3, '0'),
+        date: todayStr(),
+        type: fd.get('type'),
+        category: fd.get('category'),
+        description: fd.get('description').trim(),
+        amount: parseFloat(fd.get('amount')),
+        reference: fd.get('reference').trim()
+      });
+      saveDatabase();
+      closeModal();
+      showToast('Movimiento financiero contabilizado.', 'success');
+      render();
+    }
+
+    /**
+     * ============================================================================
+     * 2E. MÓDULO ERP – LOGÍSTICA NACIONAL ECUADOR
+     * ============================================================================
+     */
+    function renderLogisticsModule() {
+      const activeShipments = db.orders.filter(o => !['Cancelado', 'Devuelto'].includes(o.status));
+
+      return `
+        <div class="space-y-6">
+          <div>
+            <h2 class="text-xl font-extrabold text-avyra-navy">Logística y Despachos Nacionales (Ecuador)</h2>
+            <p class="text-xs text-avyra-slate">Asignación de couriers nacionales, números de guía y seguimiento de entregas por provincia.</p>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            ${activeShipments.map(o => `
+              <div class="bg-white p-5 rounded-2xl border border-avyra-border shadow-2xs flex flex-col justify-between">
+                <div>
+                  <div class="flex items-center justify-between mb-3">
+                    <span class="font-mono font-bold text-xs px-2.5 py-1 rounded-lg bg-avyra-navy text-white">${o.id}</span>
+                    <span class="text-xs font-bold px-2.5 py-0.5 rounded-full ${o.logistics.dispatchStatus === 'Entregado' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}">
+                      ${o.logistics.dispatchStatus}
+                    </span>
+                  </div>
+                  <h4 class="font-bold text-avyra-navy">${o.customerName}</h4>
+                  <p class="text-xs text-avyra-slate mt-0.5"><i data-lucide="map-pin" class="w-3 h-3 inline"></i> ${o.city}, ${o.province}</p>
+                  <p class="text-xs text-slate-600 mt-1">${o.shippingAddress}</p>
+
+                  <div class="mt-4 pt-3 border-t border-avyra-border space-y-2.5 text-xs">
+                    <div>
+                      <label class="block text-[10px] font-bold uppercase text-avyra-slate mb-1">Transportista Ecuador</label>
+                      <select onchange="updateShipmentDetails('${o.id}', 'carrier', this.value)" class="w-full px-2.5 py-1.5 rounded-lg border border-avyra-border bg-avyra-beige/40 font-semibold">
+                        ${CARRIERS_EC.map(c => `<option value="${c}" ${o.logistics.carrier === c ? 'selected' : ''}>${c}</option>`).join('')}
+                      </select>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                      <div>
+                        <label class="block text-[10px] font-bold uppercase text-avyra-slate mb-1">N° Guía / Tracking</label>
+                        <input value="${o.logistics.tracking}" onchange="updateShipmentDetails('${o.id}', 'tracking', this.value)"
+                          class="w-full px-2.5 py-1.5 rounded-lg border border-avyra-border font-mono text-xs" />
+                      </div>
+                      <div>
+                        <label class="block text-[10px] font-bold uppercase text-avyra-slate mb-1">Estado Despacho</label>
+                        <select onchange="updateShipmentDetails('${o.id}', 'dispatchStatus', this.value)" class="w-full px-2.5 py-1.5 rounded-lg border border-avyra-border font-semibold">
+                          ${['En Preparación', 'Despachado', 'En Tránsito', 'Entregado'].map(st => `
+                            <option value="${st}" ${o.logistics.dispatchStatus === st ? 'selected' : ''}>${st}</option>
+                          `).join('')}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="mt-4 pt-3 border-t border-avyra-border flex items-center justify-between text-[11px] text-avyra-slate">
+                  <span>Artículos: ${o.items.reduce((s, i) => s + i.qty, 0)} uds</span>
+                  <span>Actualizado: ${o.logistics.updatedAt}</span>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    function updateShipmentDetails(orderId, field, value) {
+      const order = db.orders.find(o => o.id === orderId);
+      if (!order) return;
+      order.logistics[field] = value;
+      order.logistics.updatedAt = todayStr();
+
+      if (field === 'dispatchStatus') {
+        if (value === 'Entregado') order.status = 'Entregado';
+        else if (value === 'En Tránsito' || value === 'Despachado') order.status = 'En Ruta';
+      }
+
+      saveDatabase();
+      showToast(`Guía logística de ${orderId} actualizada.`, 'success');
+      render();
+    }
+
+    /**
+     * ============================================================================
+     * 3A & 3B. MÓDULO CRM – BASE DE DATOS DE CLIENTES Y PERFIL 360°
+     * ============================================================================
+     */
+    function renderCustomersModule() {
+      const segments = ['Todos', 'Nuevo', 'Frecuente', 'Recurrente', 'Potencial', 'Inactivo'];
+      const filtered = db.customers.filter(c => {
+        const matchSeg = filters.customersSegment === 'Todos' || c.segment === filters.customersSegment;
+        const full = `${c.firstName} ${c.lastName} ${c.email} ${c.city}`.toLowerCase();
+        return matchSeg && full.includes(filters.customersSearch.toLowerCase());
+      });
+
+      return `
+        <div class="space-y-6">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h2 class="text-xl font-extrabold text-avyra-navy">Base de Datos de Clientes (CRM)</h2>
+              <p class="text-xs text-avyra-slate">Segmentación inteligente, consentimiento de datos e historial de compras sincronizado desde el ERP.</p>
+            </div>
+            <button onclick="openCustomerModal()" class="px-4 py-2.5 rounded-xl bg-avyra-burgundy hover:bg-avyra-burgundyHover text-white text-xs font-bold flex items-center gap-2 shadow-sm">
+              <i data-lucide="user-plus" class="w-4 h-4"></i>
+              Registrar Cliente
+            </button>
+          </div>
+
+          <!-- Filtros -->
+          <div class="bg-white p-4 rounded-2xl border border-avyra-border flex flex-col sm:flex-row gap-3">
+            <input type="text" placeholder="Buscar por nombre, correo o ciudad..." value="${filters.customersSearch}"
+              oninput="filters.customersSearch = this.value; render();"
+              class="flex-1 px-3.5 py-2 rounded-xl border border-avyra-border text-sm" />
+            <select onchange="filters.customersSegment = this.value; render();"
+              class="px-3.5 py-2 rounded-xl border border-avyra-border text-sm font-medium bg-avyra-beige/40">
+              ${segments.map(s => `<option value="${s}" ${filters.customersSegment === s ? 'selected' : ''}>Clasificación: ${s}</option>`).join('')}
+            </select>
+          </div>
+
+          <!-- Tabla CRM -->
+          <div class="bg-white rounded-2xl border border-avyra-border overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-sm">
+                <thead class="bg-avyra-navy text-white text-[11px] uppercase">
+                  <tr>
+                    <th class="py-3.5 px-4">Cliente</th>
+                    <th class="py-3.5 px-4">Ubicación (Ecuador)</th>
+                    <th class="py-3.5 px-4">Clasificación</th>
+                    <th class="py-3.5 px-4 text-center">Compras</th>
+                    <th class="py-3.5 px-4 text-center">Consentimiento</th>
+                    <th class="py-3.5 px-4 text-right">Ficha 360°</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-avyra-border">
+                  ${filtered.map(c => {
+                    const custOrders = db.orders.filter(o => o.customerId === c.id && o.status !== 'Cancelado');
+                    const ltv = custOrders.reduce((s, o) => s + o.total, 0);
+                    return `
+                      <tr class="hover:bg-avyra-beige/30">
+                        <td class="py-3.5 px-4">
+                          <div class="font-bold text-avyra-navy">${c.firstName} ${c.lastName}</div>
+                          <div class="text-xs text-avyra-slate">${c.email} • ${c.phone}</div>
+                        </td>
+                        <td class="py-3.5 px-4 text-xs">
+                          <div class="font-semibold">${c.city}, ${c.province}</div>
+                          <div class="text-avyra-slate truncate max-w-xs">${c.address}</div>
+                        </td>
+                        <td class="py-3.5 px-4">
+                          <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-avyra-beige text-avyra-navy border border-avyra-border">
+                            ${c.segment}
+                          </span>
+                        </td>
+                        <td class="py-3.5 px-4 text-center">
+                          <div class="font-extrabold text-avyra-navy">${custOrders.length} ped.</div>
+                          <div class="text-[11px] text-emerald-700 font-semibold">${fmtMoney(ltv)}</div>
+                        </td>
+                        <td class="py-3.5 px-4 text-center text-xs">
+                          ${c.marketingConsent
+                            ? '<span class="text-emerald-700 font-bold">✓ Autorizado</span>'
+                            : '<span class="text-slate-400">✕ No autorizado</span>'}
+                        </td>
+                        <td class="py-3.5 px-4 text-right">
+                          <button onclick="openCustomer360Modal('${c.id}')" class="px-3 py-1.5 rounded-lg bg-avyra-navy text-white text-xs font-bold hover:bg-avyra-navyLight">
+                            Ver Perfil 360°
+                          </button>
+                        </td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function openCustomerModal() {
+      openModal(`
+        <div class="p-6">
+          <h3 class="text-lg font-extrabold text-avyra-navy mb-4">Registrar Cliente en CRM</h3>
+          <form onsubmit="saveNewCustomer(event)" class="space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-bold mb-1">Nombres *</label>
+                <input name="firstName" required class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+              </div>
+              <div>
+                <label class="block text-xs font-bold mb-1">Apellidos *</label>
+                <input name="lastName" required class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-bold mb-1">Correo Electrónico *</label>
+                <input name="email" type="email" required class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+              </div>
+              <div>
+                <label class="block text-xs font-bold mb-1">Teléfono WhatsApp (593...) *</label>
+                <input name="phone" required value="59399" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-bold mb-1">Provincia (Ecuador)</label>
+                <select name="province" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm">
+                  ${ECUADOR_LOCATIONS.map(l => `<option value="${l.province}">${l.province}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-bold mb-1">Ciudad *</label>
+                <input name="city" required value="Quito" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+              </div>
+            </div>
+            <div>
+              <label class="block text-xs font-bold mb-1">Dirección de Entrega *</label>
+              <input name="address" required class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-bold mb-1">Clasificación</label>
+                <select name="segment" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm">
+                  <option value="Nuevo">Nuevo</option>
+                  <option value="Potencial">Potencial</option>
+                  <option value="Frecuente">Frecuente</option>
+                  <option value="Recurrente">Recurrente</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-bold mb-1">Preferencias de Viaje</label>
+                <input name="preferences" placeholder="Ej. Maletas, Tech" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+              </div>
+            </div>
+            <label class="flex items-center gap-2 text-xs font-semibold text-avyra-navy pt-1">
+              <input type="checkbox" name="marketingConsent" checked />
+              Cliente autoriza recibir novedades y promociones de AVYRA.
+            </label>
+            <div class="flex justify-end gap-3 pt-3">
+              <button type="button" onclick="closeModal()" class="px-4 py-2 rounded-xl border border-avyra-border text-xs font-bold">Cancelar</button>
+              <button type="submit" class="px-5 py-2 rounded-xl bg-avyra-burgundy text-white text-xs font-bold">Guardar Cliente</button>
+            </div>
+          </form>
+        </div>
+      `);
+    }
+
+    function saveNewCustomer(e) {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      db.customers.unshift({
+        id: 'CLI-' + String(db.customers.length + 1).padStart(3, '0'),
+        firstName: fd.get('firstName').trim(),
+        lastName: fd.get('lastName').trim(),
+        email: fd.get('email').trim(),
+        phone: fd.get('phone').trim(),
+        province: fd.get('province'),
+        city: fd.get('city').trim(),
+        address: fd.get('address').trim(),
+        registeredAt: todayStr(),
+        segment: fd.get('segment'),
+        preferences: fd.get('preferences').trim() || 'General',
+        marketingConsent: fd.get('marketingConsent') === 'on',
+        interactions: [{ date: todayStr(), type: 'Alta Manual CRM', note: 'Registrado por equipo comercial.' }]
+      });
+      saveDatabase();
+      closeModal();
+      showToast('Cliente registrado en CRM.', 'success');
+      render();
+    }
+
+    function openCustomer360Modal(customerId) {
+      const c = db.customers.find(cust => cust.id === customerId);
+      if (!c) return;
+      const orders = db.orders.filter(o => o.customerId === c.id);
+
+      openModal(`
+        <div class="p-6 max-h-[85vh] overflow-y-auto">
+          <div class="flex items-start justify-between border-b border-avyra-border pb-4">
+            <div>
+              <span class="text-xs font-mono text-avyra-burgundy font-bold">${c.id} • Registrado: ${c.registeredAt}</span>
+              <h3 class="text-xl font-extrabold text-avyra-navy">${c.firstName} ${c.lastName}</h3>
+              <p class="text-xs text-avyra-slate">${c.email} | +${c.phone} | ${c.city}, ${c.province}</p>
+            </div>
+            <div class="flex gap-2">
+              <a href="https://wa.me/${c.phone.replace(/\D/g, '')}?text=${encodeURIComponent('Hola ' + c.firstName + ', te saludamos desde AVYRA Ecuador.')}" target="_blank"
+                class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold flex items-center gap-1">
+                WhatsApp
+              </a>
+              <a href="mailto:${c.email}" class="px-3 py-1.5 rounded-lg bg-avyra-navy text-white text-xs font-bold">Correo</a>
+            </div>
+          </div>
+
+          <!-- Cambiar segmentación y consentimiento -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 my-4 bg-avyra-beige/60 p-4 rounded-xl text-xs">
+            <div>
+              <label class="block font-bold text-avyra-navy mb-1">Clasificación CRM</label>
+              <select onchange="updateCustomerSegment('${c.id}', this.value)" class="w-full px-2.5 py-1.5 rounded-lg border border-avyra-border bg-white font-semibold">
+                ${['Nuevo', 'Frecuente', 'Recurrente', 'Potencial', 'Inactivo'].map(s => `
+                  <option value="${s}" ${c.segment === s ? 'selected' : ''}>${s}</option>
+                `).join('')}
+              </select>
+            </div>
+            <div class="flex flex-col justify-center">
+              <label class="flex items-center gap-2 font-bold text-avyra-navy cursor-pointer">
+                <input type="checkbox" ${c.marketingConsent ? 'checked' : ''} onchange="toggleCustomerConsent('${c.id}', this.checked)" />
+                Autorización de Marketing Activa
+              </label>
+              <span class="text-[11px] text-avyra-slate mt-1">Preferencias: ${c.preferences}</span>
+            </div>
+          </div>
+
+          <!-- Historial de Compras Sincronizado -->
+          <h4 class="font-bold text-sm text-avyra-navy mt-5 mb-2">Historial de Compras (Sincronizado ERP)</h4>
+          ${orders.length === 0 ? `<p class="text-xs text-avyra-slate">Aún no registra pedidos.</p>` : `
+            <div class="space-y-2 mb-5">
+              ${orders.map(o => `
+                <div class="p-3 rounded-xl border border-avyra-border flex justify-between items-center text-xs">
+                  <div>
+                    <span class="font-mono font-bold text-avyra-navy">${o.id}</span> (${o.date}) — <strong>${o.status}</strong>
+                    <div class="text-avyra-slate mt-0.5">${o.items.map(i => `${i.qty}x ${i.name}`).join(', ')}</div>
+                  </div>
+                  <div class="font-extrabold text-avyra-navy">${fmtMoney(o.total)}</div>
+                </div>
+              `).join('')}
+            </div>
+          `}
+
+          <!-- Bitácora de Interacciones -->
+          <h4 class="font-bold text-sm text-avyra-navy mb-2">Bitácora de Interacciones</h4>
+          <div class="space-y-2 mb-4">
+            ${c.interactions.map(it => `
+              <div class="p-2.5 rounded-lg bg-avyra-beige/40 text-xs">
+                <span class="font-bold text-avyra-burgundy">${it.date} — ${it.type}:</span> ${it.note}
+              </div>
+            `).join('')}
+          </div>
+
+          <div class="flex justify-end pt-3 border-t border-avyra-border">
+            <button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-avyra-navy text-white text-xs font-bold">Cerrar Ficha</button>
+          </div>
+        </div>
+      `);
+    }
+
+    function updateCustomerSegment(id, seg) {
+      const c = db.customers.find(x => x.id === id);
+      if (c) { c.segment = seg; saveDatabase(); showToast('Clasificación CRM actualizada.', 'info'); render(); }
+    }
+
+    function toggleCustomerConsent(id, val) {
+      const c = db.customers.find(x => x.id === id);
+      if (c) { c.marketingConsent = val; saveDatabase(); showToast('Preferencia de privacidad actualizada.', 'info'); render(); }
+    }
+
+    /**
+     * ============================================================================
+     * 3C. MÓDULO CRM – ATENCIÓN AL CLIENTE (TICKETS, WHATSAPP Y CORREO)
+     * ============================================================================
+     */
+    function renderSupportModule() {
+      const filtered = db.tickets.filter(t => filters.ticketsStatus === 'Todos' || t.status === filters.ticketsStatus);
+
+      return `
+        <div class="space-y-6">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h2 class="text-xl font-extrabold text-avyra-navy">Atención al Cliente y Postventa</h2>
+              <p class="text-xs text-avyra-slate">Gestión de consultas, reclamos y devoluciones con contacto directo vía WhatsApp y Email.</p>
+            </div>
+            <button onclick="openNewTicketModal()" class="px-4 py-2.5 rounded-xl bg-avyra-burgundy hover:bg-avyra-burgundyHover text-white text-xs font-bold flex items-center gap-2 shadow-sm">
+              <i data-lucide="message-square-plus" class="w-4 h-4"></i>
+              Nuevo Ticket de Atención
+            </button>
+          </div>
+
+          <div class="flex gap-2 flex-wrap">
+            ${['Todos', 'Pendiente', 'En Proceso', 'Resuelto'].map(st => `
+              <button onclick="filters.ticketsStatus = '${st}'; render();"
+                class="px-3.5 py-1.5 rounded-xl text-xs font-bold border transition ${filters.ticketsStatus === st ? 'bg-avyra-navy text-white border-avyra-navy' : 'bg-white text-avyra-navy border-avyra-border'}">
+                ${st}
+              </button>
+            `).join('')}
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            ${filtered.map(t => {
+              const cust = db.customers.find(c => c.id === t.customerId);
+              const phone = cust ? cust.phone.replace(/\D/g, '') : '593990000000';
+              const email = cust ? cust.email : 'soporte@avyra.ec';
+
+              return `
+                <div class="bg-white p-5 rounded-2xl border border-avyra-border shadow-2xs flex flex-col justify-between">
+                  <div>
+                    <div class="flex items-center justify-between gap-2 mb-2">
+                      <span class="font-mono text-xs font-bold text-avyra-burgundy">${t.id} • ${t.type}</span>
+                      <select onchange="updateTicketStatus('${t.id}', this.value)"
+                        class="px-2.5 py-1 rounded-lg text-xs font-bold border border-avyra-border ${t.status === 'Resuelto' ? 'bg-emerald-100 text-emerald-900' : 'bg-amber-100 text-amber-900'}">
+                        ${['Pendiente', 'En Proceso', 'Resuelto'].map(s => `<option value="${s}" ${t.status === s ? 'selected' : ''}>${s}</option>`).join('')}
+                      </select>
+                    </div>
+                    <h4 class="font-bold text-avyra-navy">${t.subject}</h4>
+                    <p class="text-xs text-slate-600 mt-1.5 leading-relaxed">${t.description}</p>
+                    <div class="mt-3 text-[11px] text-avyra-slate">
+                      Cliente: <strong>${t.customerName}</strong> ${t.orderId ? `• Ref Pedido: <strong>${t.orderId}</strong>` : ''}
+                    </div>
+                  </div>
+
+                  <div class="mt-4 pt-3 border-t border-avyra-border flex items-center justify-between">
+                    <span class="text-[11px] text-avyra-slate">${t.date}</span>
+                    <div class="flex gap-2">
+                      <a href="https://wa.me/${phone}?text=${encodeURIComponent('Hola ' + t.customerName + ', respecto a tu caso ' + t.id + ' en AVYRA:')}" target="_blank"
+                        class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold inline-flex items-center gap-1">
+                        <i data-lucide="phone" class="w-3 h-3"></i> WhatsApp
+                      </a>
+                      <a href="mailto:${email}?subject=${encodeURIComponent('Seguimiento Caso ' + t.id + ' - AVYRA Ecuador')}"
+                        class="px-3 py-1.5 rounded-lg bg-avyra-navy hover:bg-avyra-navyLight text-white text-xs font-bold inline-flex items-center gap-1">
+                        <i data-lucide="mail" class="w-3 h-3"></i> Email
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    function openNewTicketModal() {
+      openModal(`
+        <div class="p-6">
+          <h3 class="text-lg font-extrabold text-avyra-navy mb-4">Registrar Solicitud / Reclamo</h3>
+          <form onsubmit="saveTicket(event)" class="space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-bold mb-1">Cliente *</label>
+                <select name="customerId" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm">
+                  ${db.customers.map(c => `<option value="${c.id}">${c.firstName} ${c.lastName}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-bold mb-1">Tipo de Caso *</label>
+                <select name="type" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm">
+                  <option>Consulta</option>
+                  <option>Solicitud</option>
+                  <option>Reclamo</option>
+                  <option>Devolución</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label class="block text-xs font-bold mb-1">Pedido Relacionado (Opcional)</label>
+              <select name="orderId" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm">
+                <option value="">Ninguno</option>
+                ${db.orders.map(o => `<option value="${o.id}">${o.id} — ${o.customerName}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-bold mb-1">Asunto *</label>
+              <input name="subject" required class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+            </div>
+            <div>
+              <label class="block text-xs font-bold mb-1">Detalle *</label>
+              <textarea name="description" rows="3" required class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm"></textarea>
+            </div>
+            <div class="flex justify-end gap-3 pt-3">
+              <button type="button" onclick="closeModal()" class="px-4 py-2 rounded-xl border border-avyra-border text-xs font-bold">Cancelar</button>
+              <button type="submit" class="px-5 py-2 rounded-xl bg-avyra-burgundy text-white text-xs font-bold">Crear Ticket</button>
+            </div>
+          </form>
+        </div>
+      `);
+    }
+
+    function saveTicket(e) {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const cust = db.customers.find(c => c.id === fd.get('customerId'));
+      db.tickets.unshift({
+        id: 'TCK-' + String(db.tickets.length + 1).padStart(3, '0'),
+        date: todayStr(),
+        customerId: cust.id,
+        customerName: `${cust.firstName} ${cust.lastName}`,
+        orderId: fd.get('orderId'),
+        type: fd.get('type'),
+        subject: fd.get('subject').trim(),
+        description: fd.get('description').trim(),
+        status: 'Pendiente',
+        priority: 'Media'
+      });
+      saveDatabase();
+      closeModal();
+      showToast('Ticket de atención registrado.', 'success');
+      render();
+    }
+
+    function updateTicketStatus(ticketId, status) {
+      const t = db.tickets.find(x => x.id === ticketId);
+      if (t) {
+        t.status = status;
+        saveDatabase();
+        showToast(`Ticket ${ticketId} marcado como "${status}".`, 'info');
+        render();
+      }
+    }
+
+    /**
+     * ============================================================================
+     * 3D. MÓDULO CRM – MARKETING Y FIDELIZACIÓN (CON CONTROL DE CONSENTIMIENTO)
+     * ============================================================================
+     */
+    function renderMarketingModule() {
+      const authorizedCount = db.customers.filter(c => c.marketingConsent).length;
+
+      return `
+        <div class="space-y-6">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h2 class="text-xl font-extrabold text-avyra-navy">Marketing, Códigos Promocionales y Fidelización</h2>
+              <p class="text-xs text-avyra-slate">Cumplimiento LOPDP Ecuador: los envíos solo se ejecutan a clientes con consentimiento explícito autorizado (${authorizedCount} de ${db.customers.length}).</p>
+            </div>
+            <button onclick="openCampaignModal()" class="px-4 py-2.5 rounded-xl bg-avyra-burgundy hover:bg-avyra-burgundyHover text-white text-xs font-bold flex items-center gap-2 shadow-sm">
+              <i data-lucide="sparkles" class="w-4 h-4"></i>
+              Crear Campaña / Cupón
+            </button>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            ${db.campaigns.map(c => `
+              <div class="bg-white p-6 rounded-2xl border border-avyra-border shadow-2xs">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="px-2.5 py-1 rounded-lg bg-avyra-burgundy/10 text-avyra-burgundy font-mono font-extrabold text-xs">
+                    CUPÓN: ${c.code} (${c.discountPct}% OFF)
+                  </span>
+                  <span class="text-xs font-bold text-emerald-700">● ${c.status}</span>
+                </div>
+                <h4 class="font-bold text-avyra-navy text-base">${c.name}</h4>
+                <p class="text-xs text-avyra-slate mt-1">Segmento: <strong>${c.targetSegment}</strong> • Producto foco: ${c.targetProduct}</p>
+
+                <div class="grid grid-cols-2 gap-3 my-4 p-3 rounded-xl bg-avyra-beige/60 text-center">
+                  <div>
+                    <div class="text-[11px] text-avyra-slate">Envíos Autorizados</div>
+                    <div class="text-lg font-extrabold text-avyra-navy">${c.sentCount}</div>
+                  </div>
+                  <div>
+                    <div class="text-[11px] text-avyra-slate">Conversiones (Pedidos)</div>
+                    <div class="text-lg font-extrabold text-emerald-700">${c.conversions}</div>
+                  </div>
+                </div>
+
+                <button onclick="dispatchCampaignWithConsent('${c.id}')"
+                  class="w-full py-2.5 px-4 rounded-xl bg-avyra-navy hover:bg-avyra-navyLight text-white text-xs font-bold flex items-center justify-center gap-2">
+                  <i data-lucide="send" class="w-3.5 h-3.5"></i>
+                  Ejecutar Envío (Solo Clientes Autorizados)
+                </button>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    function openCampaignModal() {
+      openModal(`
+        <div class="p-6">
+          <h3 class="text-lg font-extrabold text-avyra-navy mb-4">Nueva Campaña Promocional AVYRA</h3>
+          <form onsubmit="saveCampaign(event)" class="space-y-4">
+            <div>
+              <label class="block text-xs font-bold mb-1">Nombre de Campaña *</label>
+              <input name="name" required placeholder="Ej. Viajeros Ejecutivos Quito-Guayaquil" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-bold mb-1">Código de Descuento *</label>
+                <input name="code" required placeholder="AVYRA10" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm uppercase font-mono" />
+              </div>
+              <div>
+                <label class="block text-xs font-bold mb-1">% Descuento *</label>
+                <input name="discountPct" type="number" min="1" max="50" value="10" required class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-bold mb-1">Segmento Objetivo</label>
+                <select name="targetSegment" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm">
+                  <option value="Todos">Todos los autorizados</option>
+                  <option value="Nuevo">Nuevos clientes</option>
+                  <option value="Frecuente">Clientes frecuentes</option>
+                  <option value="Potencial">Clientes potenciales</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-bold mb-1">Producto Destacado</label>
+                <select name="targetProduct" class="w-full px-3 py-2 rounded-xl border border-avyra-border text-sm">
+                  ${db.products.map(p => `<option value="${p.name}">${p.name}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+            <div class="flex justify-end gap-3 pt-3">
+              <button type="button" onclick="closeModal()" class="px-4 py-2 rounded-xl border border-avyra-border text-xs font-bold">Cancelar</button>
+              <button type="submit" class="px-5 py-2 rounded-xl bg-avyra-burgundy text-white text-xs font-bold">Crear Campaña</button>
+            </div>
+          </form>
+        </div>
+      `);
+    }
+
+    function saveCampaign(e) {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      db.campaigns.unshift({
+        id: 'CMP-' + String(db.campaigns.length + 1).padStart(3, '0'),
+        name: fd.get('name').trim(),
+        code: fd.get('code').trim().toUpperCase(),
+        discountPct: parseInt(fd.get('discountPct'), 10),
+        targetSegment: fd.get('targetSegment'),
+        targetProduct: fd.get('targetProduct'),
+        status: 'Activa',
+        sentCount: 0,
+        conversions: 0,
+        createdAt: todayStr()
+      });
+      saveDatabase();
+      closeModal();
+      showToast('Campaña promocional creada. El código ya es válido en ventas y tienda.', 'success');
+      render();
+    }
+
+    function dispatchCampaignWithConsent(campId) {
+      const camp = db.campaigns.find(c => c.id === campId);
+      if (!camp) return;
+      const eligible = db.customers.filter(c =>
+        c.marketingConsent && (camp.targetSegment === 'Todos' || c.segment === camp.targetSegment)
+      );
+      if (eligible.length === 0) {
+        showToast('No hay clientes con consentimiento autorizado en ese segmento.', 'warning');
+        return;
+      }
+      camp.sentCount += eligible.length;
+      eligible.forEach(c => {
+        c.interactions.unshift({
+          date: todayStr(),
+          type: 'Campaña Marketing',
+          note: `Enviada promoción "${camp.name}" (Cupón ${camp.code}) con consentimiento verificado.`
+        });
+      });
+      saveDatabase();
+      showToast(`Campaña enviada a ${eligible.length} cliente(s) con autorización verificada.`, 'success');
+      render();
+    }
+
+    /**
+     * ============================================================================
+     * 5. SIMULADOR DE TIENDA VIRTUAL AVYRA + MONITOR API / WEBHOOKS EN VIVO
+     * ============================================================================
+     */
+    function renderStorefrontModule() {
+      const activeProducts = db.products.filter(p => p.active);
+      const cartSubtotal = cart.reduce((s, item) => s + (item.price * item.qty), 0);
+      const cartIva = cartSubtotal * db.meta.ivaRate;
+      const cartTotal = cartSubtotal + cartIva;
+
+      return `
+        <div class="space-y-6">
+          <!-- Cabecera Escaparate -->
+          <div class="bg-gradient-to-r from-avyra-navy to-avyra-navyLight text-white p-6 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <span class="px-2.5 py-0.5 rounded-full bg-avyra-burgundy text-[10px] font-bold uppercase tracking-wider">Escaparate Conectado en Tiempo Real</span>
+              <h2 class="text-2xl font-extrabold mt-1">AVYRA Storefront — Beyond Every Journey</h2>
+              <p class="text-xs text-slate-300 mt-1">Los precios y disponibilidad reflejan al instante el ERP. Al completar una compra se ejecuta el webhook hacia ERP, CRM, Inventario y Finanzas.</p>
+            </div>
+            <div class="text-right">
+              <div class="text-xs text-amber-300 font-bold">Endpoint Activo</div>
+              <code class="text-[11px] font-mono bg-black/30 px-2.5 py-1 rounded">POST /api/v1/storefront/checkout</code>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <!-- Catálogo Tienda Virtual -->
+            <div class="lg:col-span-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              ${activeProducts.map(p => {
+                const outOfStock = p.stock <= 0;
+                return `
+                  <div class="bg-white rounded-2xl border border-avyra-border p-5 flex flex-col justify-between shadow-2xs hover:border-avyra-navy/40 transition">
+                    <div>
+                      <div class="flex items-center justify-between mb-3">
+                        <span class="text-[11px] font-bold uppercase tracking-wider text-avyra-burgundy">${p.category}</span>
+                        <span class="text-[11px] font-mono px-2 py-0.5 rounded ${outOfStock ? 'bg-red-100 text-red-700 font-bold' : 'bg-avyra-beige text-avyra-navy'}">
+                          ${outOfStock ? 'AGOTADO' : `Stock: ${p.stock} uds`}
+                        </span>
+                      </div>
+                      <h3 class="font-extrabold text-avyra-navy text-base">${p.name}</h3>
+                      <p class="text-xs font-semibold text-avyra-slate mt-0.5">${p.variant}</p>
+                      <p class="text-xs text-slate-600 mt-2.5 leading-relaxed">${p.description}</p>
+                    </div>
+
+                    <div class="mt-5 pt-4 border-t border-avyra-border flex items-center justify-between">
+                      <div>
+                        <div class="text-lg font-extrabold text-avyra-navy">${fmtMoney(p.price)}</div>
+                        <div class="text-[10px] text-avyra-slate">+ IVA (15%)</div>
+                      </div>
+                      <button onclick="addToStoreCart('${p.id}')" ${outOfStock ? 'disabled' : ''}
+                        class="px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition ${
+                          outOfStock
+                            ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                            : 'bg-avyra-burgundy hover:bg-avyra-burgundyHover text-white shadow-xs'
+                        }">
+                        <i data-lucide="shopping-bag" class="w-3.5 h-3.5"></i>
+                        ${outOfStock ? 'Sin Stock' : 'Agregar'}
+                      </button>
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+
+            <!-- Carrito y Checkout Integrado -->
+            <div class="lg:col-span-4 space-y-6">
+              <div class="bg-white rounded-2xl border border-avyra-border p-5 shadow-2xs">
+                <h3 class="font-extrabold text-avyra-navy flex items-center gap-2 border-b border-avyra-border pb-3">
+                  <i data-lucide="shopping-cart" class="w-4 h-4 text-avyra-burgundy"></i>
+                  Carrito de Compra Web (${cart.reduce((s, i) => s + i.qty, 0)})
+                </h3>
+
+                ${cart.length === 0 ? `
+                  <p class="text-xs text-avyra-slate py-8 text-center">Agrega artículos del catálogo para simular un pedido de cliente en la tienda online.</p>
+                ` : `
+                  <div class="divide-y divide-avyra-border my-3">
+                    ${cart.map(item => `
+                      <div class="py-2.5 flex items-center justify-between text-xs">
+                        <div class="pr-2">
+                          <div class="font-bold text-avyra-navy">${item.name}</div>
+                          <div class="text-avyra-slate">${item.qty} x ${fmtMoney(item.price)}</div>
+                        </div>
+                        <div class="flex items-center gap-2">
+                          <span class="font-bold">${fmtMoney(item.qty * item.price)}</span>
+                          <button onclick="removeFromStoreCart('${item.productId}')" class="text-avyra-burgundy font-bold px-1.5">&times;</button>
+                        </div>
+                      </div>
+                    `).join('')}
+                  </div>
+
+                  <div class="space-y-1 text-xs border-t border-avyra-border pt-3 mb-4">
+                    <div class="flex justify-between"><span>Subtotal:</span><span>${fmtMoney(cartSubtotal)}</span></div>
+                    <div class="flex justify-between"><span>IVA (15%):</span><span>${fmtMoney(cartIva)}</span></div>
+                    <div class="flex justify-between text-sm font-extrabold text-avyra-navy pt-1">
+                      <span>Total a Pagar:</span><span>${fmtMoney(cartTotal)}</span>
+                    </div>
+                  </div>
+
+                  <!-- Formulario Checkout Rápido -->
+                  <form onsubmit="submitStoreCheckout(event)" class="space-y-3 border-t border-avyra-border pt-4">
+                    <div class="text-xs font-bold text-avyra-navy uppercase">Datos del Comprador</div>
+                    <div class="grid grid-cols-2 gap-2">
+                      <input name="firstName" required placeholder="Nombre *" class="px-2.5 py-2 rounded-lg border border-avyra-border text-xs" />
+                      <input name="lastName" required placeholder="Apellido *" class="px-2.5 py-2 rounded-lg border border-avyra-border text-xs" />
+                    </div>
+                    <input name="email" type="email" required placeholder="Correo electrónico *" class="w-full px-2.5 py-2 rounded-lg border border-avyra-border text-xs" />
+                    <input name="phone" required placeholder="WhatsApp (ej. 593991234567) *" class="w-full px-2.5 py-2 rounded-lg border border-avyra-border text-xs" />
+                    <div class="grid grid-cols-2 gap-2">
+                      <select name="province" class="px-2.5 py-2 rounded-lg border border-avyra-border text-xs">
+                        ${ECUADOR_LOCATIONS.map(l => `<option value="${l.province}">${l.province}</option>`).join('')}
+                      </select>
+                      <input name="city" required placeholder="Ciudad *" value="Quito" class="px-2.5 py-2 rounded-lg border border-avyra-border text-xs" />
+                    </div>
+                    <input name="address" required placeholder="Dirección exacta de entrega *" class="w-full px-2.5 py-2 rounded-lg border border-avyra-border text-xs" />
+                    <input name="discountCode" placeholder="Cupón (ej. BEYOND15)" class="w-full px-2.5 py-2 rounded-lg border border-avyra-border text-xs uppercase font-mono" />
+                    <label class="flex items-center gap-2 text-[11px] text-avyra-slate">
+                      <input type="checkbox" name="marketingConsent" checked />
+                      Acepto recibir novedades y ofertas de AVYRA.
+                    </label>
+                    <button type="submit" class="w-full py-2.5 rounded-xl bg-avyra-burgundy hover:bg-avyra-burgundyHover text-white text-xs font-bold shadow">
+                      Finalizar Compra y Sincronizar ERP/CRM
+                    </button>
+                  </form>
+                `}
+              </div>
+
+              <!-- Monitor JSON Webhook / API Sync -->
+              <div class="bg-avyra-navy text-slate-200 rounded-2xl p-4 border border-white/10">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                    <i data-lucide="terminal" class="w-3.5 h-3.5"></i> Monitor Webhook / API REST
+                  </span>
+                  <span class="text-[10px] font-mono text-emerald-400">JSON LIVE</span>
+                </div>
+                <pre class="text-[11px] font-mono bg-black/40 p-3 rounded-xl overflow-x-auto max-h-60 text-emerald-300">${JSON.stringify(db.apiLogs[0] || {}, null, 2)}</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function addToStoreCart(productId) {
+      const prod = db.products.find(p => p.id === productId);
+      if (!prod || prod.stock <= 0) return;
+      const existing = cart.find(i => i.productId === productId);
+      if (existing) {
+        if (existing.qty >= prod.stock) {
+          showToast(`Stock máximo disponible alcanzado (${prod.stock} uds).`, 'warning');
+          return;
+        }
+        existing.qty += 1;
+      } else {
+        cart.push({ productId: prod.id, sku: prod.sku, name: prod.name, price: prod.price, qty: 1 });
+      }
+      render();
+    }
+
+    function removeFromStoreCart(productId) {
+      cart = cart.filter(i => i.productId !== productId);
+      render();
+    }
+
+    function submitStoreCheckout(e) {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      try {
+        const result = processIntegratedOrder({
+          channel: 'Tienda Virtual',
+          customerData: {
+            firstName: fd.get('firstName').trim(),
+            lastName: fd.get('lastName').trim(),
+            email: fd.get('email').trim(),
+            phone: fd.get('phone').trim(),
+            province: fd.get('province'),
+            city: fd.get('city').trim(),
+            address: fd.get('address').trim(),
+            marketingConsent: fd.get('marketingConsent') === 'on'
+          },
+          items: cart,
+          paymentMethod: 'Pasarela Web AVYRA (Tarjeta)',
+          discountCode: fd.get('discountCode')
+        });
+        cart = [];
+        showToast(`¡Compra ${result.order.id} procesada! Sincronizada con ERP, CRM, Inventario y Logística.`, 'success');
+        render();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    }
+
+    /**
+     * ============================================================================
+     * 6. MÓDULO DE REPORTES EJECUTIVOS Y EXPORTACIÓN REAL CSV
+     * ============================================================================
+     */
+    function renderReportsModule() {
+      const ordersInRange = db.orders.filter(o => o.date >= filters.reportFrom && o.date <= filters.reportTo);
+      const financeInRange = db.financeEntries.filter(f => f.date >= filters.reportFrom && f.date <= filters.reportTo);
+
+      const salesTotal = ordersInRange.filter(o => !['Cancelado', 'Devuelto'].includes(o.status)).reduce((s, o) => s + o.total, 0);
+      const deliveredCount = ordersInRange.filter(o => o.status === 'Entregado').length;
+      const pendingCount = ordersInRange.filter(o => ['Pendiente', 'Confirmado', 'En Ruta'].includes(o.status)).length;
+
+      return `
+        <div class="space-y-6">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h2 class="text-xl font-extrabold text-avyra-navy">Reportes Analíticos y Exportación de Datos</h2>
+              <p class="text-xs text-avyra-slate">Filtra por rango de fechas y descarga reportes estructurados en formato CSV compatible con Excel.</p>
+            </div>
+          </div>
+
+          <!-- Filtro de Fechas -->
+          <div class="bg-white p-4 rounded-2xl border border-avyra-border flex flex-wrap items-end gap-4">
+            <div>
+              <label class="block text-xs font-bold text-avyra-navy mb-1">Desde</label>
+              <input type="date" value="${filters.reportFrom}" onchange="filters.reportFrom = this.value; render();"
+                class="px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-avyra-navy mb-1">Hasta</label>
+              <input type="date" value="${filters.reportTo}" onchange="filters.reportTo = this.value; render();"
+                class="px-3 py-2 rounded-xl border border-avyra-border text-sm" />
+            </div>
+            <div class="text-xs text-avyra-slate pb-2">
+              Mostrando <strong>${ordersInRange.length}</strong> pedidos y <strong>${financeInRange.length}</strong> asientos financieros en el período.
+            </div>
+          </div>
+
+          <!-- Tarjetas de Exportación CSV -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="bg-white p-5 rounded-2xl border border-avyra-border flex flex-col justify-between">
+              <div>
+                <h4 class="font-bold text-avyra-navy text-sm">Reporte de Ventas y Pedidos</h4>
+                <p class="text-xs text-avyra-slate mt-1">Total período: <strong>${fmtMoney(salesTotal)}</strong> (${deliveredCount} entregados, ${pendingCount} en curso).</p>
+              </div>
+              <button onclick="exportCSV('ventas')" class="mt-4 w-full py-2 rounded-xl bg-avyra-navy text-white text-xs font-bold flex items-center justify-center gap-2 hover:bg-avyra-navyLight">
+                <i data-lucide="download" class="w-3.5 h-3.5"></i> Exportar Ventas CSV
+              </button>
+            </div>
+
+            <div class="bg-white p-5 rounded-2xl border border-avyra-border flex flex-col justify-between">
+              <div>
+                <h4 class="font-bold text-avyra-navy text-sm">Inventario y Valoración</h4>
+                <p class="text-xs text-avyra-slate mt-1">${db.products.length} referencias activas con costos, PVP y stock mínimo.</p>
+              </div>
+              <button onclick="exportCSV('inventario')" class="mt-4 w-full py-2 rounded-xl bg-avyra-navy text-white text-xs font-bold flex items-center justify-center gap-2 hover:bg-avyra-navyLight">
+                <i data-lucide="download" class="w-3.5 h-3.5"></i> Exportar Inventario CSV
+              </button>
+            </div>
+
+            <div class="bg-white p-5 rounded-2xl border border-avyra-border flex flex-col justify-between">
+              <div>
+                <h4 class="font-bold text-avyra-navy text-sm">Base de Clientes CRM</h4>
+                <p class="text-xs text-avyra-slate mt-1">${db.customers.length} clientes registrados con segmentación y estado de consentimiento.</p>
+              </div>
+              <button onclick="exportCSV('clientes')" class="mt-4 w-full py-2 rounded-xl bg-avyra-navy text-white text-xs font-bold flex items-center justify-center gap-2 hover:bg-avyra-navyLight">
+                <i data-lucide="download" class="w-3.5 h-3.5"></i> Exportar Clientes CSV
+              </button>
+            </div>
+
+            <div class="bg-white p-5 rounded-2xl border border-avyra-border flex flex-col justify-between">
+              <div>
+                <h4 class="font-bold text-avyra-navy text-sm">Libro Financiero (Ingresos/Egresos)</h4>
+                <p class="text-xs text-avyra-slate mt-1">${financeInRange.length} movimientos contables registrados en el rango seleccionado.</p>
+              </div>
+              <button onclick="exportCSV('finanzas')" class="mt-4 w-full py-2 rounded-xl bg-avyra-burgundy text-white text-xs font-bold flex items-center justify-center gap-2 hover:bg-avyra-burgundyHover">
+                <i data-lucide="download" class="w-3.5 h-3.5"></i> Exportar Finanzas CSV
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function exportCSV(dataset) {
+      let headers = [];
+      let rows = [];
+      let filename = `AVYRA_${dataset}_${todayStr()}.csv`;
+
+      if (dataset === 'ventas') {
+        headers = ['ID_Pedido', 'Fecha', 'Canal', 'Cliente', 'Ciudad', 'Provincia', 'Subtotal', 'IVA', 'Total', 'Estado'];
+        rows = db.orders.map(o => [o.id, o.date, o.channel, o.customerName, o.city, o.province, o.subtotal, o.iva, o.total, o.status]);
+      } else if (dataset === 'inventario') {
+        headers = ['SKU', 'Producto', 'Categoria', 'Variante', 'Costo_USD', 'Precio_Venta_USD', 'Stock_Actual', 'Stock_Minimo'];
+        rows = db.products.map(p => [p.sku, p.name, p.category, p.variant, p.cost, p.price, p.stock, p.minStock]);
+      } else if (dataset === 'clientes') {
+        headers = ['ID', 'Nombre', 'Apellido', 'Email', 'Telefono', 'Ciudad', 'Provincia', 'Clasificacion', 'Consentimiento_Marketing'];
+        rows = db.customers.map(c => [c.id, c.firstName, c.lastName, c.email, c.phone, c.city, c.province, c.segment, c.marketingConsent ? 'SI' : 'NO']);
+      } else if (dataset === 'finanzas') {
+        headers = ['ID', 'Fecha', 'Tipo', 'Categoria', 'Descripcion', 'Monto_USD', 'Referencia'];
+        rows = db.financeEntries.map(f => [f.id, f.date, f.type, f.category, f.description, f.amount, f.reference]);
+      }
+
+      const csvContent = '\uFEFF' + [headers, ...rows]
+        .map(r => r.map(cell => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+        .join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast(`Archivo ${filename} descargado correctamente.`, 'success');
+    }
+
+    /**
+     * ============================================================================
+     * 7. ARQUITECTURA DE DATOS, API REST Y MANUAL DE ADMINISTRACIÓN
+     * ============================================================================
+     */
+    function renderDocsModule() {
+      return `
+        <div class="space-y-6 max-w-5xl">
+          <div class="bg-white p-6 rounded-2xl border border-avyra-border">
+            <h2 class="text-xl font-extrabold text-avyra-navy">Arquitectura del Sistema AVYRA ERP & CRM</h2>
+            <p class="text-sm text-avyra-slate mt-1">Documentación técnica, modelo relacional de datos, endpoints de integración e instrucciones operativas.</p>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+              <div class="p-4 rounded-xl bg-avyra-beige/60 border border-avyra-border">
+                <h3 class="font-bold text-avyra-navy text-sm mb-2">1. Modelo Relacional de Base de Datos</h3>
+                <ul class="text-xs space-y-1.5 text-slate-700 font-mono">
+                  <li><strong>products</strong> (id PK, sku UNIQUE, name, category, cost, price, stock, min_stock)</li>
+                  <li><strong>inventory_movements</strong> (id PK, sku FK, type, qty, prev_stock, new_stock, ref)</li>
+                  <li><strong>suppliers & purchase_orders</strong> (id PK, supplier_id FK, items JSONB, status)</li>
+                  <li><strong>customers</strong> (id PK, email UNIQUE, city, province, segment, consent_bool)</li>
+                  <li><strong>orders</strong> (id PK, customer_id FK, items JSONB, subtotal, iva_15, total, status)</li>
+                  <li><strong>shipments</strong> (order_id FK, carrier_ec, tracking_code, dispatch_status)</li>
+                  <li><strong>finance_entries</strong> (id PK, type, category, amount, reference_id)</li>
+                  <li><strong>tickets & campaigns</strong> (id PK, customer_id FK, status, coupon_code)</li>
+                </ul>
+              </div>
+
+              <div class="p-4 rounded-xl bg-avyra-navy text-slate-200">
+                <h3 class="font-bold text-amber-300 text-sm mb-2">2. Endpoints API REST para Tienda Virtual</h3>
+                <div class="text-xs font-mono space-y-2">
+                  <div><span class="text-emerald-400">GET</span> /api/v1/catalog/products<br><span class="text-slate-400">Sincroniza precios y stock disponible en tiempo real.</span></div>
+                  <div><span class="text-sky-400">POST</span> /api/v1/storefront/checkout<br><span class="text-slate-400">Crea pedido, registra cliente CRM, descuenta Kardex y genera guía.</span></div>
+                  <div><span class="text-amber-400">PATCH</span> /api/v1/orders/{id}/status<br><span class="text-slate-400">Actualiza estado; revierte inventario si es Cancelado/Devuelto.</span></div>
+                  <div><span class="text-purple-400">POST</span> /api/v1/webhooks/payment-confirmed<br><span class="text-slate-400">Conciliación automática con pasarelas de Ecuador (Payphone/Datafast).</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-6 p-5 rounded-xl border border-avyra-border space-y-2 text-xs text-slate-700 leading-relaxed">
+              <h3 class="font-bold text-avyra-navy text-sm">3. Manual Rápido de Administración</h3>
+              <p><strong>• Persistencia Local:</strong> Todos los cambios realizados (nuevos productos, compras recibidas, ventas, clientes y tickets) se almacenan automáticamente en <code>localStorage</code> bajo la clave <code>AVYRA_ERP_CRM_DB_V1</code>.</p>
+              <p><strong>• Flujo Completo Recomendado:</strong> Ingresa a <em>Tienda Online & API</em>, agrega una <strong>Maleta Inteligente AVYRA Pro (AVY-001)</strong> al carrito y finaliza la compra. Verifica luego cómo se redujo el stock en <em>Inventario</em>, apareció el ingreso en <em>Finanzas</em>, se creó la guía en <em>Logística Ecuador</em> y se registró el historial en <em>CRM Clientes</em>.</p>
+              <p><strong>• Control de Roles:</strong> Cierra sesión desde la esquina superior derecha e ingresa con perfil <em>Inventario</em>, <em>Ventas</em>, <em>Atención al Cliente</em> o <em>Finanzas</em> para comprobar el bloqueo de módulos por permiso.</p>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // Inicialización al cargar ventana
+    window.addEventListener('DOMContentLoaded', () => {
+      render();
+    });
+  </script>
+</body>
+</html>
